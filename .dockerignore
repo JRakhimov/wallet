@@ -1,0 +1,12 @@
+.git
+.env
+.env.*
+!.env.example
+node_modules
+dist
+apps/api/dist
+apps/web/dist
+apps/api/.test-build
+coverage
+backups
+*.log

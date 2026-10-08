@@ -1,0 +1,109 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Owner {
+  id         String   @id @default(uuid()) @db.Uuid
+  telegramId BigInt   @unique
+  name       String   @default("Мой кошелёк")
+  timezone   String   @default("Asia/Tashkent")
+  theme      String   @default("system")
+  createdAt  DateTime @default(now())
+  accounts   Account[]
+  categories Category[]
+  operations Operation[]
+  sessions   Session[]
+  budgets    Budget[]
+}
+
+model Session {
+  tokenHash String   @id
+  ownerId   String   @db.Uuid
+  owner     Owner    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([expiresAt])
+}
+
+model Account {
+  id         String   @id @default(uuid()) @db.Uuid
+  ownerId    String   @db.Uuid
+  owner      Owner    @relation(fields: [ownerId], references: [id])
+  name       String
+  kind       String   @default("card")
+  currency   String   @default("UZS")
+  archived   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  entries    Entry[]
+  @@index([ownerId])
+}
+
+model Category {
+  id         String   @id @default(uuid()) @db.Uuid
+  ownerId    String   @db.Uuid
+  owner      Owner    @relation(fields: [ownerId], references: [id])
+  name       String
+  kind       String   @default("expense")
+  icon       String   @default("shapes")
+  archived   Boolean  @default(false)
+  favorite   Boolean  @default(false)
+  position   Int      @default(0)
+  operations Operation[]
+  @@index([ownerId, kind])
+}
+
+model Operation {
+  id             String   @id @default(uuid()) @db.Uuid
+  ownerId        String   @db.Uuid
+  owner          Owner    @relation(fields: [ownerId], references: [id])
+  kind           String
+  amount         Decimal  @db.Decimal(20, 2)
+  currency       String   @default("UZS")
+  categoryId     String?  @db.Uuid
+  category       Category? @relation(fields: [categoryId], references: [id])
+  note           String   @default("")
+  occurredAt     DateTime @db.Timestamptz(3)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deletedAt      DateTime?
+  version        Int      @default(1)
+  idempotencyKey String
+  requestHash    String
+  parentId       String?  @db.Uuid
+  parent         Operation? @relation("Refunds", fields: [parentId], references: [id])
+  refunds        Operation[] @relation("Refunds")
+  entries        Entry[]
+  @@unique([ownerId, idempotencyKey])
+  @@index([ownerId, occurredAt, id])
+  @@index([parentId])
+}
+
+model Entry {
+  id          String    @id @default(uuid()) @db.Uuid
+  operationId String    @db.Uuid
+  operation   Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+  accountId   String    @db.Uuid
+  account     Account   @relation(fields: [accountId], references: [id])
+  amount      Decimal   @db.Decimal(20, 2)
+  @@unique([operationId, accountId])
+  @@index([accountId])
+}
+
+model Budget {
+  id      String  @id @default(uuid()) @db.Uuid
+  ownerId String  @db.Uuid
+  owner   Owner   @relation(fields: [ownerId], references: [id])
+  month   String
+  amount  Decimal @db.Decimal(20, 2)
+  @@unique([ownerId, month])
+}
+
+model BotUpdate {
+  updateId BigInt @id
+  processedAt DateTime @default(now())
+}
