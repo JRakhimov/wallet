@@ -1134,6 +1134,30 @@ textarea::placeholder {
     transform: rotate(360deg);
   }
 }
+/* Close animations: duration must match EXIT_ANIMATION_MS in components/Sheet.tsx. */
+.overlay.closing {
+  animation: overlay-out 0.2s ease-in forwards;
+  pointer-events: none;
+}
+.overlay.closing .sheet {
+  animation: sheet-out 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+@keyframes overlay-out {
+  to {
+    background: #060b0800;
+  }
+}
+@keyframes sheet-out {
+  to {
+    transform: translateY(100%);
+  }
+}
+@keyframes sheet-pop-out {
+  to {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+}
 @keyframes overlay-in {
   from {
     background: #060b0800;
@@ -1153,8 +1177,13 @@ textarea::placeholder {
 @media (prefers-reduced-motion: reduce) {
   .loader,
   .overlay,
-  .sheet {
+  .sheet,
+  .overlay.closing,
+  .overlay.closing .sheet {
     animation: none;
+  }
+  .overlay.closing {
+    visibility: hidden;
   }
 }
 .appearance {
@@ -1204,6 +1233,9 @@ textarea::placeholder {
     border-radius: 22px;
     max-height: 85dvh;
     animation-name: sheet-pop;
+  }
+  .overlay.closing .sheet {
+    animation-name: sheet-pop-out;
   }
 }
 @media (max-width: 360px) {

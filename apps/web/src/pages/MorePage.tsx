@@ -15,7 +15,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { Account, Category, downloadCsv, Operation, Owner, request, Summary } from "../api";
 import { OperationRow } from "../components/OperationRow";
-import { Sheet } from "../components/Sheet";
+import { Sheet, SheetPresence } from "../components/Sheet";
 import { monthLabel } from "../lib/format";
 import { closeTelegramApp, openedInTelegram } from "../lib/telegram";
 import { useRefresh } from "../lib/useRefresh";
@@ -169,57 +169,59 @@ export function MorePage({
         </p>
       )}
       <p className="timezone">UZS · {owner.timezone}</p>
-      {sheet && (
-        <Sheet title={sheetTitles[sheet.kind]} onClose={close}>
-          {sheet.kind === "accounts" && <AccountsPanel accounts={accounts} refresh={refresh} />}
-          {sheet.kind === "categories" && (
-            <CategoriesPanel
-              categories={categories}
-              onRefresh={() => qc.invalidateQueries({ queryKey: ["categories"] })}
-            />
-          )}
-          {sheet.kind === "budget" && (
-            <BudgetPanel month={month} amount={summary.budget} refresh={refresh} />
-          )}
-          {sheet.kind === "entry" && (
-            <EntryPanel
-              type={sheet.type}
-              accounts={activeAccounts}
-              categories={categories}
-              timezone={owner.timezone}
-              onDone={closeAndRefresh}
-            />
-          )}
-          {sheet.kind === "trash" && (
-            <div className="sheet-body">
-              {trashQ.isLoading ? (
-                <p className="sheet-desc">Загружаем…</p>
-              ) : trashQ.data?.items.length ? (
-                trashQ.data.items.map((op) => (
-                  <OperationRow
-                    key={op.id}
-                    op={op}
-                    timezone={owner.timezone}
-                    onClick={() => setSheet({ kind: "operation", operation: op })}
-                  />
-                ))
-              ) : (
-                <p className="sheet-desc">Удалённых операций за этот месяц нет.</p>
-              )}
-            </div>
-          )}
-          {sheet.kind === "operation" && (
-            <OperationPanel
-              operation={sheet.operation}
-              accounts={activeAccounts}
-              categories={categories}
-              timezone={owner.timezone}
-              onDone={closeAndRefresh}
-              onRefresh={refresh}
-            />
-          )}
-        </Sheet>
-      )}
+      <SheetPresence>
+        {sheet && (
+          <Sheet title={sheetTitles[sheet.kind]} onClose={close}>
+            {sheet.kind === "accounts" && <AccountsPanel accounts={accounts} refresh={refresh} />}
+            {sheet.kind === "categories" && (
+              <CategoriesPanel
+                categories={categories}
+                onRefresh={() => qc.invalidateQueries({ queryKey: ["categories"] })}
+              />
+            )}
+            {sheet.kind === "budget" && (
+              <BudgetPanel month={month} amount={summary.budget} refresh={refresh} />
+            )}
+            {sheet.kind === "entry" && (
+              <EntryPanel
+                type={sheet.type}
+                accounts={activeAccounts}
+                categories={categories}
+                timezone={owner.timezone}
+                onDone={closeAndRefresh}
+              />
+            )}
+            {sheet.kind === "trash" && (
+              <div className="sheet-body">
+                {trashQ.isLoading ? (
+                  <p className="sheet-desc">Загружаем…</p>
+                ) : trashQ.data?.items.length ? (
+                  trashQ.data.items.map((op) => (
+                    <OperationRow
+                      key={op.id}
+                      op={op}
+                      timezone={owner.timezone}
+                      onClick={() => setSheet({ kind: "operation", operation: op })}
+                    />
+                  ))
+                ) : (
+                  <p className="sheet-desc">Удалённых операций за этот месяц нет.</p>
+                )}
+              </div>
+            )}
+            {sheet.kind === "operation" && (
+              <OperationPanel
+                operation={sheet.operation}
+                accounts={activeAccounts}
+                categories={categories}
+                timezone={owner.timezone}
+                onDone={closeAndRefresh}
+                onRefresh={refresh}
+              />
+            )}
+          </Sheet>
+        )}
+      </SheetPresence>
     </div>
   );
 }

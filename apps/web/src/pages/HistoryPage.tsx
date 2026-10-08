@@ -5,7 +5,7 @@ import { DateTime } from "luxon";
 import { Account, Category, Operation, request } from "../api";
 import { MonthSwitch } from "../components/MonthSwitch";
 import { OperationRow } from "../components/OperationRow";
-import { Sheet } from "../components/Sheet";
+import { Sheet, SheetPresence } from "../components/Sheet";
 import { currentMonth, money } from "../lib/format";
 import { useRefresh } from "../lib/useRefresh";
 import { OperationPanel } from "../panels/OperationPanel";
@@ -171,21 +171,23 @@ export function HistoryPage({
           {error}
         </p>
       )}
-      {detail && (
-        <Sheet title="Операция" onClose={() => setDetail(null)}>
-          <OperationPanel
-            operation={detail}
-            accounts={accounts.filter((a) => !a.archived)}
-            categories={categories}
-            timezone={timezone}
-            onDone={async () => {
-              setDetail(null);
-              await refresh();
-            }}
-            onRefresh={refresh}
-          />
-        </Sheet>
-      )}
+      <SheetPresence>
+        {detail && (
+          <Sheet title="Операция" onClose={() => setDetail(null)}>
+            <OperationPanel
+              operation={detail}
+              accounts={accounts.filter((a) => !a.archived)}
+              categories={categories}
+              timezone={timezone}
+              onDone={async () => {
+                setDetail(null);
+                await refresh();
+              }}
+              onRefresh={refresh}
+            />
+          </Sheet>
+        )}
+      </SheetPresence>
     </div>
   );
 }

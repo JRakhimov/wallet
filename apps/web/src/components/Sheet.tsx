@@ -1,5 +1,40 @@
-import { ReactNode, useEffect, useRef } from "react";
+import { createContext, ReactNode, useContext, useEffect, useReducer, useRef } from "react";
 import { X } from "lucide-react";
+
+// Keep in sync with the sheet-out animation duration in styles.css.
+const EXIT_ANIMATION_MS = 200;
+
+const SheetClosingContext = createContext(false);
+
+/**
+ * Keeps a sheet on screen while its close animation plays. Wrap a conditionally
+ * rendered sheet: `<SheetPresence>{open && <Sheet …/>}</SheetPresence>`.
+ */
+export function SheetPresence({ children }: { children: ReactNode }) {
+  const lastChildren = useRef<ReactNode>(null);
+  const [, rerender] = useReducer((count: number) => count + 1, 0);
+  const isOpen = Boolean(children);
+  if (isOpen) {
+    lastChildren.current = children;
+  }
+
+  useEffect(() => {
+    if (isOpen || !lastChildren.current) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      lastChildren.current = null;
+      rerender();
+    }, EXIT_ANIMATION_MS);
+    return () => window.clearTimeout(timer);
+  }, [isOpen]);
+
+  return (
+    <SheetClosingContext.Provider value={!isOpen}>
+      {isOpen ? children : lastChildren.current}
+    </SheetClosingContext.Provider>
+  );
+}
 
 export function Sheet({
   title,
@@ -12,6 +47,7 @@ export function Sheet({
   onClose: () => void;
   children: ReactNode;
 }) {
+  const closing = useContext(SheetClosingContext);
   const close = useRef(onClose);
   close.current = onClose;
   useEffect(() => {
@@ -50,7 +86,7 @@ export function Sheet({
   }, []);
   return (
     <div
-      className="overlay"
+      className={"overlay" + (closing ? " closing" : "")}
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();

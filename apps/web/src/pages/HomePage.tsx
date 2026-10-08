@@ -5,7 +5,7 @@ import { DateTime } from "luxon";
 import { Account, Category, Operation, OperationInput, Owner, request, Summary } from "../api";
 import { CategoryIcon } from "../components/CategoryIcon";
 import { SelectField } from "../components/SelectField";
-import { Sheet } from "../components/Sheet";
+import { Sheet, SheetPresence } from "../components/Sheet";
 import { accountChoices } from "../lib/choices";
 import {
   amountFromKeys,
@@ -248,108 +248,114 @@ export function HomePage({
           {remaining === null ? "Настроить" : money(Math.abs(Number(remaining))) + " сум"}
         </strong>
       </button>
-      {sheet === "category" && (
-        <Sheet title="Категория" label="Выбор категории" onClose={close}>
-          <div className="category-grid">
-            {activeCategories.map((c) => (
-              <button
-                key={c.id}
-                className={"category-option " + (categoryId === c.id ? "selected" : "")}
-                onClick={() => {
-                  setCategoryId(c.id);
-                  setAttempt(null);
-                  setError("");
-                  close();
-                }}
-              >
-                <CategoryIcon name={c.icon} />
-                <span>{c.name}</span>
-              </button>
-            ))}
-          </div>
-        </Sheet>
-      )}
-      {sheet === "details" && (
-        <Sheet title="Параметры расхода" onClose={close}>
-          <div className="sheet-body">
-            <SelectField
-              label="Счёт"
-              value={selectedAccount?.id || ""}
-              options={accountChoices(activeAccounts)}
-              onChange={(value) => {
-                setAccountId(value);
-                setAttempt(null);
-              }}
-            />
-            <label className="field-label">
-              Дата
-              <input
-                className="field"
-                type="date"
-                max={today()}
-                value={day}
-                onChange={(e) => {
-                  setDay(e.target.value);
-                  setAttempt(null);
-                }}
-              />
-            </label>
-            <label className="field-label">
-              Комментарий
-              <input
-                className="field"
-                maxLength={500}
-                value={note}
-                placeholder="Необязательно"
-                onChange={(e) => {
-                  setNote(e.target.value);
-                  setAttempt(null);
-                }}
-              />
-            </label>
-            <button className="primary full" onClick={close}>
-              Готово
-            </button>
-          </div>
-        </Sheet>
-      )}
-      {sheet === "note" && (
-        <Sheet title="Комментарий" label="Комментарий к расходу" onClose={close}>
-          <div className="sheet-body">
-            <p className="sheet-desc">Этот комментарий сохранится вместе с расходом.</p>
-            <label className="field-label">
-              Комментарий
-              <textarea
-                className="field note-field"
-                maxLength={500}
-                value={note}
-                autoFocus
-                placeholder="Например, обед с друзьями"
-                onChange={(e) => {
-                  setNote(e.target.value);
-                  setAttempt(null);
-                }}
-              />
-            </label>
-            <div className="note-actions">
-              {note && (
+      <SheetPresence>
+        {sheet === "category" && (
+          <Sheet title="Категория" label="Выбор категории" onClose={close}>
+            <div className="category-grid">
+              {activeCategories.map((c) => (
                 <button
-                  className="quiet"
+                  key={c.id}
+                  className={"category-option " + (categoryId === c.id ? "selected" : "")}
                   onClick={() => {
-                    setNote("");
+                    setCategoryId(c.id);
                     setAttempt(null);
+                    setError("");
+                    close();
                   }}
                 >
-                  Очистить
+                  <CategoryIcon name={c.icon} />
+                  <span>{c.name}</span>
                 </button>
-              )}
-              <button className="primary" onClick={close}>
+              ))}
+            </div>
+          </Sheet>
+        )}
+      </SheetPresence>
+      <SheetPresence>
+        {sheet === "details" && (
+          <Sheet title="Параметры расхода" onClose={close}>
+            <div className="sheet-body">
+              <SelectField
+                label="Счёт"
+                value={selectedAccount?.id || ""}
+                options={accountChoices(activeAccounts)}
+                onChange={(value) => {
+                  setAccountId(value);
+                  setAttempt(null);
+                }}
+              />
+              <label className="field-label">
+                Дата
+                <input
+                  className="field"
+                  type="date"
+                  max={today()}
+                  value={day}
+                  onChange={(e) => {
+                    setDay(e.target.value);
+                    setAttempt(null);
+                  }}
+                />
+              </label>
+              <label className="field-label">
+                Комментарий
+                <input
+                  className="field"
+                  maxLength={500}
+                  value={note}
+                  placeholder="Необязательно"
+                  onChange={(e) => {
+                    setNote(e.target.value);
+                    setAttempt(null);
+                  }}
+                />
+              </label>
+              <button className="primary full" onClick={close}>
                 Готово
               </button>
             </div>
-          </div>
-        </Sheet>
-      )}
+          </Sheet>
+        )}
+      </SheetPresence>
+      <SheetPresence>
+        {sheet === "note" && (
+          <Sheet title="Комментарий" label="Комментарий к расходу" onClose={close}>
+            <div className="sheet-body">
+              <p className="sheet-desc">Этот комментарий сохранится вместе с расходом.</p>
+              <label className="field-label">
+                Комментарий
+                <textarea
+                  className="field note-field"
+                  maxLength={500}
+                  value={note}
+                  autoFocus
+                  placeholder="Например, обед с друзьями"
+                  onChange={(e) => {
+                    setNote(e.target.value);
+                    setAttempt(null);
+                  }}
+                />
+              </label>
+              <div className="note-actions">
+                {note && (
+                  <button
+                    className="quiet"
+                    onClick={() => {
+                      setNote("");
+                      setAttempt(null);
+                    }}
+                  >
+                    Очистить
+                  </button>
+                )}
+                <button className="primary" onClick={close}>
+                  Готово
+                </button>
+              </div>
+            </div>
+          </Sheet>
+        )}
+      </SheetPresence>
     </div>
   );
 }
