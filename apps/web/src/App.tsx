@@ -1,19 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BarChart3, Home, List, MoreHorizontal, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import {
-  Account,
-  ApiError,
-  Category,
-  login,
-  Owner,
-  request,
-  setupTelegram,
-  Summary,
-  syncTelegramColors,
-} from "./api";
+import { Account, ApiError, Category, login, Owner, relogin, request, Summary } from "./api";
 import { currentMonth } from "./lib/format";
+import { initTelegram, syncTelegramColors } from "./lib/telegram";
 import { HistoryPage } from "./pages/HistoryPage";
 import { HomePage } from "./pages/HomePage";
 import { MorePage, MoreSheet } from "./pages/MorePage";
@@ -38,20 +29,21 @@ export function App() {
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [moreSheet, setMoreSheet] = useState<MoreSheet | null>(null);
   const draft = useExpenseDraft();
-  async function signIn() {
+  const autoRelogin = useRef(false);
+
+  /** `fresh` drops the stored session, e.g. after the server rejected it. */
+  async function signIn(fresh = false) {
     setAuth("loading");
     setAuthError("");
     try {
-      const mode = await login();
-      setAuth(mode);
-      await qc.invalidateQueries();
+      setAuth(await (fresh ? relogin() : login()));
     } catch (e) {
       setAuthError(e instanceof Error ? e.message : "Не удалось выполнить вход");
       setAuth("error");
     }
   }
   useEffect(() => {
-    setupTelegram();
+    initTelegram();
     void signIn();
   }, []);
   useEffect(() => {
@@ -80,6 +72,15 @@ export function App() {
     queryFn: () => request<Summary>("/reports/summary?month=" + month),
     enabled: ready,
   });
+  const commonError = ownerQ.error || accountsQ.error || catsQ.error || summaryQ.error;
+  const sessionExpired = commonError instanceof ApiError && commonError.status === 401;
+  // A stored session can be revoked or expire early: sign in again once, silently.
+  useEffect(() => {
+    if (sessionExpired && !autoRelogin.current) {
+      autoRelogin.current = true;
+      void signIn(true);
+    }
+  }, [sessionExpired]);
   useEffect(() => {
     if (ownerQ.data) {
       document.documentElement.dataset.theme = ownerQ.data.theme;
@@ -117,13 +118,12 @@ export function App() {
         </button>
       </div>
     );
-  const commonError = ownerQ.error || accountsQ.error || catsQ.error || summaryQ.error;
-  if (commonError instanceof ApiError && commonError.status === 401)
+  if (sessionExpired)
     return (
       <div className="center-state">
         <h1>Сессия истекла</h1>
         <p>Войдите снова, чтобы продолжить.</p>
-        <button className="primary" onClick={() => void signIn()}>
+        <button className="primary" onClick={() => void signIn(true)}>
           Войти
         </button>
       </div>

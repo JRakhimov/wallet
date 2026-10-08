@@ -3,20 +3,24 @@ import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
+// Keep in sync with TELEGRAM_SDK_URL in src/lib/telegram.ts.
+const TELEGRAM_SDK_URL = "https://telegram.org/js/telegram-web-app.js";
 
-export default defineConfig(({ command, mode }) => ({
+export default defineConfig(({ mode }) => ({
   root: fileURLToPath(new URL(".", import.meta.url)),
   plugins: [
     react(),
     {
-      name: "telegram-sdk-in-production",
-      transformIndexHtml: (html) =>
-        command === "build"
-          ? html.replace(
-              "<head>",
-              '<head>\n    <script src="https://telegram.org/js/telegram-web-app.js?63"></script>',
-            )
-          : html,
+      // Start downloading the Telegram SDK right away without blocking the first render.
+      // The app inserts the script itself (see src/lib/telegram.ts).
+      name: "preload-telegram-sdk",
+      transformIndexHtml: () => [
+        {
+          tag: "link",
+          attrs: { rel: "preload", as: "script", href: TELEGRAM_SDK_URL },
+          injectTo: "head-prepend",
+        },
+      ],
     },
   ],
   server: {

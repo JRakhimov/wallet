@@ -60,41 +60,11 @@ export type OperationInput = {
   note: string;
   occurredAt: string;
 };
+import { AuthMode, clearSession, loadSession, saveSession, Session } from "./lib/session";
+import { openedInTelegram, telegramInitData } from "./lib/telegram";
+
 let accessToken = "";
-let telegramScript: Promise<void> | undefined;
-function loadTelegramSdk() {
-  if (window.Telegram?.WebApp) return Promise.resolve();
-  if (!telegramScript)
-    telegramScript = new Promise<void>((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = "https://telegram.org/js/telegram-web-app.js";
-      script.onload = () => resolve();
-      script.onerror = () => {
-        telegramScript = undefined;
-        script.remove();
-        reject(new Error("Не удалось загрузить Telegram. Переоткройте приложение"));
-      };
-      document.head.appendChild(script);
-    });
-  return telegramScript;
-}
-export function setupTelegram() {
-  const app = window.Telegram?.WebApp;
-  app?.ready();
-  app?.expand();
-  app?.disableVerticalSwipes?.();
-  syncTelegramColors();
-}
-export function syncTelegramColors() {
-  const app = window.Telegram?.WebApp;
-  if (!app) return;
-  const style = getComputedStyle(document.documentElement);
-  const bg = style.getPropertyValue("--bg").trim(),
-    surface = style.getPropertyValue("--surface").trim();
-  app.setHeaderColor?.(surface);
-  app.setBackgroundColor?.(bg);
-  app.setBottomBarColor?.(surface);
-}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -102,9 +72,6 @@ export class ApiError extends Error {
   ) {
     super(message);
   }
-}
-export function setToken(token: string) {
-  accessToken = token;
 }
 const apiBase = (
   (import.meta as { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL || ""
@@ -139,24 +106,54 @@ export async function request<T>(
   }
   return response.json() as Promise<T>;
 }
-export async function login(): Promise<"dev" | "telegram"> {
-  const config = await request<{ dev: boolean }>("/auth/config");
-  if (config.dev) {
-    const data = await request<{ token: string }>("/auth/dev", { method: "POST" });
-    setToken(data.token);
-    return "dev";
-  }
-  await loadTelegramSdk();
-  setupTelegram();
-  const initData = window.Telegram?.WebApp?.initData;
-  if (!initData) throw new Error("Откройте кошелёк через Telegram");
-  const data = await request<{ token: string }>("/auth/telegram", {
-    method: "POST",
-    body: JSON.stringify({ initData }),
-  });
-  setToken(data.token);
-  return "telegram";
+/** Signs in, reusing the stored session when it is still valid. */
+export async function login(): Promise<AuthMode> {
+  const session = loadSession() ?? (await signIn());
+  accessToken = session.token;
+  return session.mode;
 }
+
+/** Forgets the stored session and signs in again. */
+export async function relogin(): Promise<AuthMode> {
+  clearSession();
+  return login();
+}
+
+async function signIn(): Promise<Session> {
+  // Inside Telegram try Telegram sign-in first to skip the /auth/config round trip.
+  // A dev-mode server rejects it with 403, then we fall back to the config check.
+  if (openedInTelegram()) {
+    try {
+      return await signInWithTelegram();
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 403)) {
+        throw error;
+      }
+    }
+  }
+  const config = await request<{ dev: boolean }>("/auth/config");
+  return config.dev ? signInDev() : signInWithTelegram();
+}
+
+async function signInWithTelegram() {
+  const initData = await telegramInitData();
+  return storeSession(
+    await request<Session>("/auth/telegram", {
+      method: "POST",
+      body: JSON.stringify({ initData }),
+    }),
+  );
+}
+
+async function signInDev() {
+  return storeSession(await request<Session>("/auth/dev", { method: "POST" }));
+}
+
+function storeSession(session: Session) {
+  saveSession(session);
+  return session;
+}
+
 export async function downloadCsv(month: string) {
   const response = await fetch(
     apiUrl("/exports/transactions.csv?month=" + encodeURIComponent(month)),
@@ -170,30 +167,4 @@ export async function downloadCsv(month: string) {
   link.download = "wallet-" + month + ".csv";
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 3000);
-}
-declare global {
-  interface Window {
-    Telegram?: {
-      WebApp?: {
-        initData: string;
-        ready: () => void;
-        expand: () => void;
-        disableVerticalSwipes?: () => void;
-        setHeaderColor?: (color: string) => void;
-        setBackgroundColor?: (color: string) => void;
-        setBottomBarColor?: (color: string) => void;
-        HapticFeedback?: {
-          impactOccurred: (style: string) => void;
-          notificationOccurred: (type: string) => void;
-        };
-        colorScheme?: string;
-        BackButton?: {
-          show: () => void;
-          hide: () => void;
-          onClick: (f: () => void) => void;
-          offClick: (f: () => void) => void;
-        };
-      };
-    };
-  }
 }
