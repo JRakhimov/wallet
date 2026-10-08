@@ -14,17 +14,17 @@
 4. Выполните npm run dev.
 5. Откройте http://localhost:5173.
 
-В .env.example включён AUTH_MODE=dev. Браузер получает локальную сессию без Telegram, но API работает с PostgreSQL. Для запуска без Docker такой вход требует NODE_ENV=development и локальные адреса API, базы и приложения. В Docker пример включает DEV_BYPASS_AUTH=true и привязывает порт API к 127.0.0.1.
+В .env.example включён AUTH_MODE=dev. Браузер получает локальную сессию без Telegram, но API работает с PostgreSQL. Dev-режим требует NODE_ENV=development и не проверяет, откуда пришёл запрос, поэтому API должен быть доступен только с вашего компьютера.
 
 npm run dev запускает Vite на порту 5173 и API на порту 3001. npm run build собирает оба приложения. npm test проверяет защиту dev-входа и подпись Telegram. npm run test:integration дополнительно проверяет денежные операции в работающей локальной PostgreSQL после миграций. npm run db:studio открывает просмотр базы.
 
 ## API и фронтенд через Docker Compose
 
-PostgreSQL должен быть запущен отдельно: сервис `postgres` в `docker-compose.yml` сейчас отключён. Укажите в `.env` обычный `DATABASE_URL` для команд, выполняемых на компьютере. Для контейнера API задайте `DOCKER_DATABASE_URL` с адресом базы, доступным из контейнера. Если PostgreSQL работает на том же компьютере, используйте `host.docker.internal` вместо `localhost`; Compose добавляет этот адрес и на Linux.
+PostgreSQL должен быть запущен отдельно: сервис `postgres` в `docker-compose.yml` сейчас отключён. Укажите в `.env` `DATABASE_URL` с адресом базы, доступным из контейнера. Если PostgreSQL работает на том же компьютере, используйте `host.docker.internal` вместо `localhost`; Compose добавляет этот адрес и на Linux.
 
 После настройки выполните `docker compose up --build -d`. Compose запустит `api` и `web`, а API применит миграции при старте. Откройте веб-приложение по порту `WEB_PORT`. `VITE_API_BASE_URL` передаётся при сборке фронтенда; после его изменения пересоберите образ. Остановить контейнеры можно через `docker compose down`.
 
-Для локального входа через Docker используйте `DEV_BYPASS_AUTH=true` только на своём компьютере. Для серверного запуска задайте `DEV_BYPASS_AUTH=false`, `AUTH_MODE=telegram`, `NODE_ENV=production` и Telegram-параметры ниже.
+Для локального входа через Docker используйте `AUTH_MODE=dev` только на своём компьютере: Compose открывает порт API на всех сетевых интерфейсах. Для серверного запуска задайте `AUTH_MODE=telegram`, `NODE_ENV=production` и Telegram-параметры ниже.
 
 ## Telegram
 

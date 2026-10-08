@@ -28,16 +28,6 @@ export function verifyTelegram(initData: string, botToken: string, ownerId: bigi
   if (BigInt(user.data.id) !== ownerId) throw new ForbiddenException('Этот кошелёк доступен только владельцу');
   return user.data;
 }
-export function isLocalRequest(req: Pick<Request, 'headers' | 'socket'>, origin: string) {
-  if (process.env.DEV_BYPASS_AUTH === 'true') return true;
-  const address = req.socket.remoteAddress;
-  if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(address || '')) return false;
-  const host = req.headers.host || '';
-  if (!/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host)) return false;
-  if (req.headers['x-forwarded-for']) return false;
-  const requestOrigin = req.headers.origin;
-  return !requestOrigin || requestOrigin === origin || requestOrigin === origin.replace('localhost', '127.0.0.1');
-}
 const categories = [
   ['Продукты','shopping-basket'], ['Кафе','coffee'], ['Транспорт','car'], ['Дом','house'],
   ['Покупки','shopping-bag'], ['Здоровье','heart-pulse'], ['Развлечения','popcorn'],
@@ -73,7 +63,6 @@ export class AuthGuard implements CanActivate {
   async canActivate(context: ExecutionContext) {
     if (this.reflector.getAllAndOverride<boolean>('public', [context.getHandler(), context.getClass()])) return true;
     const req = context.switchToHttp().getRequest<OwnerRequest>();
-    if (this.config.dev && !isLocalRequest(req, this.config.origin)) throw new ForbiddenException('Dev-режим доступен только локально');
     const bearer = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(req.headers.authorization || '');
     if (!bearer) throw new UnauthorizedException('Требуется вход');
     const hash = createHash('sha256').update(bearer[1]).digest('hex');
@@ -87,10 +76,10 @@ export class AuthGuard implements CanActivate {
 export class AuthController {
   constructor(private readonly auth: AuthService, private readonly db: Database) {}
   @Public() @Get('config')
-  config(@Req() req: Request) { return { dev: this.auth.config.dev && isLocalRequest(req, this.auth.config.origin) }; }
+  config() { return { dev: this.auth.config.dev }; }
   @Public() @Post('dev')
-  dev(@Req() req: Request) {
-    if (!this.auth.config.dev || !isLocalRequest(req, this.auth.config.origin)) throw new ForbiddenException('Локальный вход отключён');
+  dev() {
+    if (!this.auth.config.dev) throw new ForbiddenException('Локальный вход отключён');
     return this.auth.login();
   }
   @Public() @Post('telegram')

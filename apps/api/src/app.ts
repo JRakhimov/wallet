@@ -4,7 +4,6 @@ import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { Prisma } from '@prisma/client';
 import { Request, Response } from 'express';
-import { resolve } from 'node:path';
 import helmet from 'helmet';
 import { AppConfig, CONFIG } from './config';
 import { AuthController, AuthGuard, AuthService, Public } from './auth';
@@ -65,14 +64,6 @@ export async function createApp(config: AppConfig, quiet=false) {
     if(entry.count>60)return res.status(429).json({message:'Слишком много попыток. Подождите минуту'});
     next();
   });
-  if(config.env==='production'){
-    const web=resolve(__dirname,'../../web/dist');
-    app.useStaticAssets(web);
-    app.use((req:Request,res:Response,next:()=>void)=>{
-      if(req.method==='GET' && !req.path.startsWith('/api/')) return res.sendFile(resolve(web,'index.html'));
-      next();
-    });
-  }
   app.enableShutdownHooks();
   return app;
 }

@@ -1,26 +1,4 @@
 services:
-  # postgres:
-  #   image: postgres:16-alpine
-  #   container_name: wallet_postgres
-  #   restart: unless-stopped
-  #   environment:
-  #     POSTGRES_USER: ${POSTGRES_USER:-wallet}
-  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wallet_secret}
-  #     POSTGRES_DB: ${POSTGRES_DB:-wallet_db}
-  #   ports:
-  #     - "${POSTGRES_PORT:-5432}:5432"
-  #   volumes:
-  #     - postgres_data:/var/lib/postgresql/data
-  #   healthcheck:
-  #     test:
-  #       [
-  #         "CMD-SHELL",
-  #         "pg_isready -U ${POSTGRES_USER:-wallet} -d ${POSTGRES_DB:-wallet_db}",
-  #       ]
-  #     interval: 5s
-  #     timeout: 5s
-  #     retries: 5
-
   api:
     build:
       context: .
@@ -28,10 +6,9 @@ services:
     container_name: wallet_api
     restart: unless-stopped
     environment:
-      DATABASE_URL: ${DOCKER_DATABASE_URL:-${DATABASE_URL:?Set DATABASE_URL or DOCKER_DATABASE_URL in .env}}
+      DATABASE_URL: ${DATABASE_URL}
       PORT: ${PORT:-3011}
       NODE_ENV: ${NODE_ENV:-production}
-      DEV_BYPASS_AUTH: ${DEV_BYPASS_AUTH:-false}
       AUTH_MODE: ${AUTH_MODE:-telegram}
       HOST: 0.0.0.0
       BOT_TOKEN: ${BOT_TOKEN:-${TELEGRAM_BOT_TOKEN:-}}
@@ -40,7 +17,7 @@ services:
       MINI_APP_URL: ${MINI_APP_URL:-${APP_ORIGIN:-https://wallet.y3110w.com}}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://wallet.y3110w.com,http://localhost:3012,http://localhost:5173}
     ports:
-      - "${API_BIND_HOST:-0.0.0.0}:${PORT:-3011}:${PORT:-3011}"
+      - "${PORT:-3011}:${PORT:-3011}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
