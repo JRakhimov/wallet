@@ -45,7 +45,7 @@ services:
       - "host.docker.internal:host-gateway"
     networks:
       - default
-  # - homelab_net
+      - homelab_net
 
   web:
     build:
@@ -61,11 +61,11 @@ services:
       - api
     networks:
       - default
-# - homelab_net
+      - homelab_net
 
 volumes:
   postgres_data:
 
-# networks:
-#   homelab_net:
-#     external: true
+networks:
+  homelab_net:
+    external: true
