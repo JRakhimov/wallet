@@ -1,10 +1,10 @@
-import { icon } from "../lib/choices";
+import { categoryIcon } from "../lib/category-icons";
 
-export function CategoryIcon({ name }: { name: string }) {
-  const Icon = icon(name);
+export function CategoryIcon({ name, size = 20 }: { name: string; size?: number }) {
+  const { Icon } = categoryIcon(name);
   return (
     <span className="cat-icon">
-      <Icon size={20} />
+      <Icon size={size} />
     </span>
   );
 }

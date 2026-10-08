@@ -3,7 +3,8 @@ import { DateTime } from "luxon";
 import { Account, Category, Operation, OperationInput, request } from "../api";
 import { SelectField } from "../components/SelectField";
 import { accountChoices, categoryChoices } from "../lib/choices";
-import { money, occurrenceForDay, today } from "../lib/format";
+import { money, normalizeAmount, occurrenceForDay, today } from "../lib/format";
+import { AmountInput } from "../components/AmountInput";
 
 export function OperationPanel({
   operation,
@@ -63,7 +64,7 @@ export function OperationPanel({
   function saveEdit() {
     const input: OperationInput = {
       kind: op.kind as OperationInput["kind"],
-      amount: amount.replace(",", "."),
+      amount: normalizeAmount(amount),
       accountId: account,
       note,
       occurredAt: occurrenceForDay(date, timezone),
@@ -101,7 +102,7 @@ export function OperationPanel({
   function refundOperation() {
     const input: OperationInput = {
       kind: "refund",
-      amount: refundAmount.replace(",", "."),
+      amount: normalizeAmount(refundAmount),
       accountId: op.entries[0]?.accountId,
       parentId: op.id,
       note: "Возврат",
@@ -164,12 +165,7 @@ export function OperationPanel({
         <div className="edit-form">
           <label className="field-label">
             Сумма
-            <input
-              className="field"
-              inputMode="decimal"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-            />
+            <AmountInput value={amount} onChange={setAmount} />
           </label>
           <SelectField
             label="Счёт"
@@ -214,7 +210,7 @@ export function OperationPanel({
           </label>
           <button
             className="primary full"
-            disabled={busy || !(Number(amount.replace(",", ".")) > 0)}
+            disabled={busy || !(Number(normalizeAmount(amount)) > 0)}
             onClick={saveEdit}
           >
             Сохранить изменения
@@ -235,12 +231,10 @@ export function OperationPanel({
         <div className="refund-box">
           <label className="field-label">
             Возврат, не больше {money(maxRefund)} сум
-            <input
-              className="field"
-              inputMode="decimal"
+            <AmountInput
               value={refundAmount}
-              onChange={(e) => {
-                setRefundAmount(e.target.value);
+              onChange={(value) => {
+                setRefundAmount(value);
                 refundAttempt.current = null;
               }}
               placeholder="Сумма возврата"
@@ -248,7 +242,7 @@ export function OperationPanel({
           </label>
           <button
             className="secondary full"
-            disabled={busy || !(Number(refundAmount.replace(",", ".")) > 0)}
+            disabled={busy || !(Number(normalizeAmount(refundAmount)) > 0)}
             onClick={refundOperation}
           >
             Записать возврат

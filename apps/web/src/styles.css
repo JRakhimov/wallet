@@ -573,6 +573,18 @@ textarea::placeholder {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.operation-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  flex: none;
+}
+.operation-time {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
 .operation-amount {
   white-space: nowrap;
   font-size: 14px;
@@ -944,31 +956,43 @@ textarea::placeholder {
   transform: rotate(180deg);
 }
 .icon-options {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px;
-  max-height: 238px;
+  /* Positioned so option offsets are measured from the list (see IconSelect). */
+  position: relative;
+  max-height: 300px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   margin-top: 8px;
-  padding: 5px;
+  padding: 0 5px 5px;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--surface-soft);
 }
+.icon-group-title {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 9px 7px 5px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
 .icon-option {
   display: flex;
   align-items: center;
-  gap: 7px;
-  min-width: 0;
-  min-height: 51px;
-  padding: 7px;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 5px 8px;
   border: 1px solid transparent;
-  border-radius: 10px;
-  background: var(--surface);
+  border-radius: 9px;
+  background: transparent;
   color: var(--text);
   text-align: left;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
 }
 .icon-option.selected {
   border-color: var(--accent);
@@ -976,10 +1000,10 @@ textarea::placeholder {
   color: var(--accent);
 }
 .icon-option .cat-icon {
-  width: 30px;
-  height: 30px;
-  flex: 0 0 30px;
-  border-radius: 9px;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 8px;
 }
 .icon-option > span:nth-child(2) {
   min-width: 0;
@@ -1205,8 +1229,5 @@ textarea::placeholder {
   }
   .budget-inline {
     font-size: 11px;
-  }
-  .icon-options {
-    grid-template-columns: 1fr;
   }
 }

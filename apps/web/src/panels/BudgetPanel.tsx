@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { request } from "../api";
 import { monthLabel, normalizeAmount } from "../lib/format";
+import { AmountInput } from "../components/AmountInput";
 
 export function BudgetPanel({
   month,
@@ -35,13 +36,7 @@ export function BudgetPanel({
       <p className="sheet-desc">Общий лимит на {monthLabel(month)}.</p>
       <label className="field-label">
         Лимит, сум
-        <input
-          className="field"
-          inputMode="decimal"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="Например, 6 000 000"
-        />
+        <AmountInput value={value} onChange={setValue} placeholder="Например, 6 000 000" />
       </label>
       {error && (
         <p className="form-error" role="alert">

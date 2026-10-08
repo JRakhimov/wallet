@@ -13,6 +13,7 @@ type TelegramWebApp = {
   initData: string;
   ready: () => void;
   expand: () => void;
+  close: () => void;
   disableVerticalSwipes?: () => void;
   setHeaderColor?: (color: string) => void;
   setBackgroundColor?: (color: string) => void;
@@ -77,6 +78,11 @@ export function initTelegram() {
     .catch(() => {
       // Sign-in reports SDK errors; the window setup is cosmetic.
     });
+}
+
+/** Closes the Mini App. Available only inside Telegram. */
+export function closeTelegramApp() {
+  window.Telegram?.WebApp?.close();
 }
 
 export async function telegramInitData() {

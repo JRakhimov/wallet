@@ -5,7 +5,9 @@ export const money = (value: string | number, decimals = false) =>
     minimumFractionDigits: decimals ? 2 : 0,
     maximumFractionDigits: 2,
   }).format(Number(value));
-export const normalizeAmount = (value: string) => value.replace(/\s/g, "").replace(",", ".");
+/** Plain API amount from user input: "1 300,5" → "1300.5", "5." → "5". */
+export const normalizeAmount = (value: string) =>
+  value.replace(/\s/g, "").replace(",", ".").replace(/\.$/, "");
 export function parseCents(value: string) {
   const normalized = normalizeAmount(value);
   if (!/^-?(0|[1-9]\d{0,11})(\.\d{1,2})?$/.test(normalized)) return null;

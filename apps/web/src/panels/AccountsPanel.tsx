@@ -3,7 +3,8 @@ import { CreditCard } from "lucide-react";
 import { Account, request } from "../api";
 import { SelectField } from "../components/SelectField";
 import { accountKindChoices } from "../lib/choices";
-import { money } from "../lib/format";
+import { money, normalizeAmount } from "../lib/format";
+import { AmountInput } from "../components/AmountInput";
 
 export function AccountsPanel({
   accounts,
@@ -25,7 +26,11 @@ export function AccountsPanel({
     try {
       await request("/accounts", {
         method: "POST",
-        body: JSON.stringify({ name, kind, openingBalance }),
+        body: JSON.stringify({
+          name,
+          kind,
+          openingBalance: normalizeAmount(openingBalance) || "0",
+        }),
       });
       setName("");
       setOpeningBalance("0");
@@ -130,12 +135,7 @@ export function AccountsPanel({
       <SelectField label="Тип" value={kind} options={accountKindChoices} onChange={setKind} />
       <label className="field-label">
         Начальный остаток, сум
-        <input
-          className="field"
-          inputMode="decimal"
-          value={openingBalance}
-          onChange={(e) => setOpeningBalance(e.target.value.replace(",", "."))}
-        />
+        <AmountInput value={openingBalance} onChange={setOpeningBalance} allowNegative />
       </label>
       {error && (
         <p className="form-error" role="alert">

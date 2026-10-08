@@ -10,6 +10,7 @@ import {
   parseCents,
   today,
 } from "../lib/format";
+import { AmountInput } from "../components/AmountInput";
 
 export function EntryPanel({
   type,
@@ -94,12 +95,10 @@ export function EntryPanel({
       )}
       <label className="field-label">
         {type === "adjustment" ? "Фактический остаток, сум" : "Сумма, сум"}
-        <input
-          className="field"
-          inputMode="decimal"
+        <AmountInput
           value={amount}
-          onChange={(e) => {
-            setAmount(e.target.value);
+          onChange={(value) => {
+            setAmount(value);
             reset();
           }}
           placeholder="0"

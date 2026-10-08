@@ -1,25 +1,12 @@
 import { z } from "zod";
 import { label } from "../../common/validation/schemas";
 
-export const CATEGORY_ICONS = [
-  "shopping-basket",
-  "coffee",
-  "car",
-  "house",
-  "shopping-bag",
-  "heart-pulse",
-  "popcorn",
-  "repeat",
-  "graduation-cap",
-  "shapes",
-  "briefcase-business",
-  "circle-plus",
-  "gift",
-  "plane",
-  "utensils",
-] as const;
-
-const icon = z.enum(CATEGORY_ICONS);
+// Icon names are chosen in the client (see apps/web/src/lib/category-icons.ts); unknown
+// names render a fallback icon, so the API only checks the format.
+const icon = z
+  .string()
+  .max(40)
+  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "Некорректная иконка");
 
 export const createCategorySchema = z
   .object({

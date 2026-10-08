@@ -8,6 +8,7 @@ import {
   CreditCard,
   Delete,
   Download,
+  LogOut,
   Settings2,
   Shapes,
 } from "lucide-react";
@@ -16,6 +17,7 @@ import { Account, Category, downloadCsv, Operation, Owner, request, Summary } fr
 import { OperationRow } from "../components/OperationRow";
 import { Sheet } from "../components/Sheet";
 import { monthLabel } from "../lib/format";
+import { closeTelegramApp, openedInTelegram } from "../lib/telegram";
 import { useRefresh } from "../lib/useRefresh";
 import { AccountsPanel } from "../panels/AccountsPanel";
 import { BudgetPanel } from "../panels/BudgetPanel";
@@ -93,7 +95,7 @@ export function MorePage({
     <div className="page">
       <div className="page-heading">
         <div>
-          <h1>Настройки</h1>
+          <h1>Дополнительно</h1>
         </div>
       </div>
       <div className="more-group">
@@ -128,6 +130,9 @@ export function MorePage({
           label="Недавно удалённые"
           onClick={() => setSheet({ kind: "trash" })}
         />
+        {openedInTelegram() && (
+          <MenuRow Icon={LogOut} label="Закрыть приложение" onClick={closeTelegramApp} />
+        )}
       </div>
       <div className="appearance">
         <span>Тема</span>

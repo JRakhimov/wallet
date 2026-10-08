@@ -42,6 +42,10 @@ export function OperationRow({
           } as Record<string, string>
         )[op.kind] ||
         "Операция";
+  const time = DateTime.fromISO(op.occurredAt)
+    .setZone(timezone)
+    .setLocale("ru")
+    .toFormat("d LLL · HH:mm");
   return (
     <button className="operation-row" onClick={onClick}>
       <span className="operation-icon">
@@ -49,17 +53,16 @@ export function OperationRow({
       </span>
       <span className="operation-text">
         <strong>{title}</strong>
-        <small>
-          {op.note ||
-            DateTime.fromISO(op.occurredAt)
-              .setZone(timezone)
-              .setLocale("ru")
-              .toFormat("d LLL · HH:mm")}
-        </small>
+        {op.note && <small>{op.note}</small>}
       </span>
-      <span className={"operation-amount " + (sign === "+" ? "positive" : "")}>
-        {sign}
-        {money(op.amount)} <small>сум</small>
+      <span className="operation-side">
+        <span className={"operation-amount " + (sign === "+" ? "positive" : "")}>
+          {sign}
+          {money(op.amount)} <small>сум</small>
+        </span>
+        <time className="operation-time" dateTime={op.occurredAt}>
+          {time}
+        </time>
       </span>
     </button>
   );

@@ -1,6 +1,6 @@
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
-import { categoryIconOptions } from "../lib/choices";
+import { categoryIcon, categoryIconGroups } from "../lib/category-icons";
 import { CategoryIcon } from "./CategoryIcon";
 
 export function IconSelect({
@@ -15,7 +15,24 @@ export function IconSelect({
   const [open, setOpen] = useState(false);
   const optionsId = useId();
   const trigger = useRef<HTMLButtonElement>(null);
-  const selected = categoryIconOptions.find(([name]) => name === value)?.[1] || "Общая";
+  const list = useRef<HTMLDivElement>(null);
+  const selectedOption = useRef<HTMLButtonElement>(null);
+
+  // Long list: start at the current icon. Scrolls only the list, not the whole sheet.
+  useEffect(() => {
+    const container = list.current;
+    const option = selectedOption.current;
+    if (open && container && option) {
+      container.scrollTop = option.offsetTop - (container.clientHeight - option.offsetHeight) / 2;
+    }
+  }, [open]);
+
+  function choose(name: string) {
+    onChange(name);
+    setOpen(false);
+    trigger.current?.focus();
+  }
+
   return (
     <div
       className="icon-select"
@@ -35,30 +52,41 @@ export function IconSelect({
         aria-expanded={open}
         aria-controls={optionsId}
         disabled={disabled}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen((isOpen) => !isOpen)}
       >
         <CategoryIcon name={value} />
-        <span>{selected}</span>
+        <span>{categoryIcon(value).label}</span>
         <ChevronDown className={open ? "chevron-open" : ""} size={18} />
       </button>
       {open && (
-        <div className="icon-options" id={optionsId} role="group" aria-label="Выбор иконки">
-          {categoryIconOptions.map(([name, label]) => (
-            <button
-              type="button"
-              key={name}
-              className={"icon-option " + (name === value ? "selected" : "")}
-              aria-pressed={name === value}
-              onClick={() => {
-                onChange(name);
-                setOpen(false);
-                trigger.current?.focus();
-              }}
-            >
-              <CategoryIcon name={name} />
-              <span>{label}</span>
-              {name === value && <Check size={15} aria-hidden="true" />}
-            </button>
+        <div
+          ref={list}
+          className="icon-options"
+          id={optionsId}
+          role="group"
+          aria-label="Выбор иконки"
+        >
+          {categoryIconGroups.map((group) => (
+            <section key={group.title} className="icon-group">
+              <h4 className="icon-group-title">{group.title}</h4>
+              {group.icons.map(({ name, label }) => {
+                const selected = name === value;
+                return (
+                  <button
+                    key={name}
+                    ref={selected ? selectedOption : undefined}
+                    type="button"
+                    className={"icon-option " + (selected ? "selected" : "")}
+                    aria-pressed={selected}
+                    onClick={() => choose(name)}
+                  >
+                    <CategoryIcon name={name} size={16} />
+                    <span>{label}</span>
+                    {selected && <Check size={15} aria-hidden="true" />}
+                  </button>
+                );
+              })}
+            </section>
           ))}
         </div>
       )}

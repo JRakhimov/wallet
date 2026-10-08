@@ -148,8 +148,7 @@ export function App() {
           <span>Wallet</span>
         </div>
         <div className="header-right">
-          {auth === "dev" && <span className="dev-badge">Локально</span>}
-          <span className="currency">UZS</span>
+          {auth === "dev" && <span className="dev-badge">[Dev]</span>}
         </div>
       </header>
       {feedback && (
