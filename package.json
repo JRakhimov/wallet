@@ -2,7 +2,9 @@
   "name": "wallet",
   "version": "0.1.0",
   "private": true,
-  "engines": { "node": ">=22.12" },
+  "engines": {
+    "node": ">=22.12"
+  },
   "scripts": {
     "dev": "npm run build:api && concurrently -k -n api-ts,api,web -c gray,green,blue \"tsc -p apps/api/tsconfig.json --watch --preserveWatchOutput\" \"node --watch apps/api/dist/main.js\" \"vite --config apps/web/vite.config.ts\"",
     "dev:api": "npm run build:api && concurrently -k -n api-ts,api -c gray,green \"tsc -p apps/api/tsconfig.json --watch --preserveWatchOutput\" \"node --watch apps/api/dist/main.js\"",
@@ -18,7 +20,9 @@
     "bot:configure": "node scripts/configure-bot.mjs",
     "test": "tsc -p apps/api/tsconfig.test.json && node --test --test-concurrency=1 apps/api/.test-build/test/*.test.js",
     "test:integration": "tsc -p apps/api/tsconfig.test.json && RUN_DB_TESTS=1 node --test --test-concurrency=1 apps/api/.test-build/test/*.test.js",
-    "check": "npm run build && npm test"
+    "check": "npm run build && npm test",
+    "format": "prettier --write apps scripts",
+    "format:check": "prettier --check apps scripts"
   },
   "dependencies": {
     "@nestjs/common": "^11.2.0",
@@ -28,8 +32,8 @@
     "@tanstack/react-query": "^5.90.0",
     "dotenv": "^16.6.1",
     "helmet": "^8.1.0",
-    "luxon": "^3.7.2",
     "lucide-react": "^0.468.0",
+    "luxon": "^3.7.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "reflect-metadata": "^0.2.2",
@@ -44,6 +48,7 @@
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.7.0",
     "concurrently": "^9.2.0",
+    "prettier": "^3.9.9",
     "prisma": "6.19.0",
     "typescript": "^5.9.0",
     "vite": "^7.3.0"

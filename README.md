@@ -16,7 +16,7 @@
 
 В .env.example включён AUTH_MODE=dev. Браузер получает локальную сессию без Telegram, но API работает с PostgreSQL. Dev-режим требует NODE_ENV=development и не проверяет, откуда пришёл запрос, поэтому API должен быть доступен только с вашего компьютера.
 
-npm run dev запускает Vite на порту 5173 и API на порту 3001. npm run build собирает оба приложения. npm test проверяет защиту dev-входа и подпись Telegram. npm run test:integration дополнительно проверяет денежные операции в работающей локальной PostgreSQL после миграций. npm run db:studio открывает просмотр базы.
+npm run dev запускает Vite на порту 5173 и API на порту 3001. npm run build собирает оба приложения. npm test проверяет защиту dev-входа и подпись Telegram. npm run test:integration дополнительно проверяет денежные операции в работающей локальной PostgreSQL после миграций. npm run db:studio открывает просмотр базы. npm run format форматирует код через Prettier, npm run format:check проверяет форматирование.
 
 ## API и фронтенд через Docker Compose
 

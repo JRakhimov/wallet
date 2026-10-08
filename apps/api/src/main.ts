@@ -1,10 +1,17 @@
-import 'dotenv/config';
-import { createApp } from './app';
-import { readConfig } from './config';
-async function main() {
-  const config=readConfig();
-  const app=await createApp(config);
-  await app.listen(config.port,config.host);
-  console.log('Wallet API: http://'+config.host+':'+config.port+' | auth: '+(config.dev?'LOCAL DEVELOPMENT':'TELEGRAM'));
+import "dotenv/config";
+import { createApp } from "./app.factory";
+import { readConfig } from "./config/app-config";
+
+async function bootstrap() {
+  const config = readConfig();
+  const app = await createApp(config);
+  await app.listen(config.port, config.host);
+
+  const authMode = config.dev ? "LOCAL DEVELOPMENT" : "TELEGRAM";
+  console.log(`Wallet API: http://${config.host}:${config.port} | auth: ${authMode}`);
 }
-void main().catch(error=>{console.error(error instanceof Error?error.message:'Startup failed');process.exit(1);});
+
+bootstrap().catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : "Startup failed");
+  process.exit(1);
+});
