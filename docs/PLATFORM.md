@@ -66,6 +66,7 @@ auth/                вход (Telegram / dev), глобальный AuthGuard, 
 owner/               профиль и настройки владельца; OwnerSetupRegistry — стартовые данные приложений
 health/              GET /api/health
 telegram/            бот: ответ на /start кнопкой Mini App, голосовые сообщения владельца
+telegram/reminder*   напоминания со звуком: 14:00 нет приёмов пищи; 20:00 нет ужина и/или меньше 2 расходов (время владельца, раз в день)
 voice/               голос → операция: SpeechToText (Whisper), TransactionParser (LLM), VoiceTransactionService
 wallet/              приложение «Кошелёк»
   wallet.module.ts   собирает модули кошелька, регистрирует его стартовые данные

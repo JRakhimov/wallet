@@ -22,6 +22,8 @@ type Message = {
   chat: { id: number; type: string };
 };
 
+export type MiniApp = "wallet" | "nutrition";
+
 type Update = {
   update_id: number;
   message?: Message;
@@ -208,13 +210,25 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
     }
   }
 
-  /** One button per deployed mini app, each on its own row. */
-  private appButtons() {
-    const apps = [
-      { text: "💳 Кошелёк", url: this.config.miniAppUrl },
-      { text: "🥗 Питание", url: this.config.nutritionAppUrl },
+  /** Sends a message to the owner's private chat (its id is the owner's Telegram id). */
+  async sendToOwner(text: string, options: { silent: boolean; apps?: MiniApp[] }) {
+    await this.call("sendMessage", {
+      chat_id: Number(this.config.ownerTelegramId),
+      text,
+      disable_notification: options.silent,
+      ...(options.apps && { reply_markup: { inline_keyboard: this.appButtons(options.apps) } }),
+    });
+  }
+
+  /** One button per deployed mini app (all of them by default), each on its own row. */
+  private appButtons(only: MiniApp[] = ["wallet", "nutrition"]) {
+    const apps: { id: MiniApp; text: string; url: string }[] = [
+      { id: "wallet", text: "💳 Кошелёк", url: this.config.miniAppUrl },
+      { id: "nutrition", text: "🥗 Питание", url: this.config.nutritionAppUrl },
     ];
-    return apps.filter((app) => app.url).map(({ text, url }) => [{ text, web_app: { url } }]);
+    return apps
+      .filter((app) => app.url && only.includes(app.id))
+      .map(({ text, url }) => [{ text, web_app: { url } }]);
   }
 
   private async poll() {

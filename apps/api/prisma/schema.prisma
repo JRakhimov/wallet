@@ -111,6 +111,16 @@ model BotUpdate {
   processedAt DateTime @default(now())
 }
 
+// A reminder already checked for a day, so it is sent at most once even after restarts.
+model Reminder {
+  kind      String   // lunch | evening
+  date      String   // yyyy-MM-dd in the owner's timezone
+  sent      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@id([kind, date])
+}
+
 // ---------------------------------------------------------------------------
 // Nutrition mini app
 // ---------------------------------------------------------------------------
