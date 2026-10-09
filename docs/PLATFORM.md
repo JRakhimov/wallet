@@ -33,6 +33,7 @@
 
 ```
 Telegram-бот ── /start ──► сообщение с кнопками web_app (по кнопке на приложение)
+             ── голосовое ─► «Принято в обработку…» → Whisper → LLM (тип, сумма, категория) → операция в кошельке → «Расход 45 000 сум за обед записан»
                               │
              ┌────────────────┼────────────────┐
              ▼                ▼                ▼
@@ -64,7 +65,8 @@ common/
 auth/                вход (Telegram / dev), глобальный AuthGuard, проверка initData
 owner/               профиль и настройки владельца; OwnerSetupRegistry — стартовые данные приложений
 health/              GET /api/health
-telegram/            бот: ответ на /start кнопкой Mini App
+telegram/            бот: ответ на /start кнопкой Mini App, голосовые сообщения владельца
+voice/               голос → операция: SpeechToText (Whisper), TransactionParser (LLM), VoiceTransactionService
 wallet/              приложение «Кошелёк»
   wallet.module.ts   собирает модули кошелька, регистрирует его стартовые данные
   wallet-defaults.ts стартовый счёт и категории

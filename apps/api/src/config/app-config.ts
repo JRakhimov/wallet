@@ -17,6 +17,16 @@ const LLM_API_KEY_ENV: Record<LlmProvider, string> = {
 const DEFAULT_LLM_MODEL: Partial<Record<LlmProvider, string>> = { claude: "claude-opus-5-5" };
 const DEFAULT_PHOTO_DIR = "data/photos";
 
+/** Voice messages to the bot; null when OPENAI_API_KEY is not set. */
+export type VoiceConfig = {
+  apiKey: string;
+  /** Set to use a self-hosted OpenAI-compatible Whisper server instead of OpenAI. */
+  transcriptionBaseUrl: string | undefined;
+  transcriptionModel: string;
+  /** Model that picks kind, amount and category out of the transcript. */
+  parserModel: string;
+};
+
 export interface AppConfig {
   env: string;
   dev: boolean;
@@ -26,9 +36,12 @@ export interface AppConfig {
   allowedOrigins: string[];
   botToken: string;
   ownerTelegramId: bigint;
+  /** Long-poll Telegram even in dev mode (BOT_IN_DEV=true). Off by default so a local API never competes with the deployed bot for updates. */
+  botInDev: boolean;
   miniAppUrl: string;
   /** Nutrition Mini App URL for the bot's /start buttons; empty when not deployed. */
   nutritionAppUrl: string;
+  voice: VoiceConfig | null;
   nutrition: {
     llm: LlmConfig | null;
     /** Absolute folder for meal photos (PhotoStorage on disk). */
@@ -83,6 +96,11 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     }
   }
 
+  const botInDev = env.BOT_IN_DEV === "true";
+  if (dev && botInDev && (!botToken || !/^[1-9]\d*$/.test(ownerTelegramId))) {
+    throw new Error("BOT_IN_DEV requires BOT_TOKEN and OWNER_TELEGRAM_ID");
+  }
+
   const port = Number(env.PORT || 3001);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error("Invalid PORT");
@@ -96,9 +114,12 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     origin: originUrl.origin,
     allowedOrigins,
     botToken,
-    ownerTelegramId: dev ? 0n : BigInt(ownerTelegramId),
+    // Dev login uses owner 0, unless the bot runs locally: then both must be the real owner.
+    ownerTelegramId: dev && !botInDev ? 0n : BigInt(ownerTelegramId || 0),
+    botInDev,
     miniAppUrl,
     nutritionAppUrl,
+    voice: readVoiceConfig(env),
     nutrition: {
       llm: readLlmConfig(env),
       photoDir: resolve(env.PHOTO_STORAGE_DIR || DEFAULT_PHOTO_DIR),
@@ -121,4 +142,18 @@ function readLlmConfig(env: NodeJS.ProcessEnv): LlmConfig | null {
     throw new Error(`NUTRITION_LLM_MODEL is required for the ${provider} provider`);
   }
   return { provider, model, apiKey };
+}
+
+/** Voice commands are optional: without a key the bot answers that they are not set up. */
+function readVoiceConfig(env: NodeJS.ProcessEnv): VoiceConfig | null {
+  const apiKey = env.OPENAI_API_KEY || "";
+  if (!apiKey) {
+    return null;
+  }
+  return {
+    apiKey,
+    transcriptionBaseUrl: env.WHISPER_BASE_URL || undefined,
+    transcriptionModel: env.WHISPER_MODEL || "whisper-1",
+    parserModel: env.VOICE_LLM_MODEL || "gpt-4o-mini",
+  };
 }
