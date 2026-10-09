@@ -15,6 +15,8 @@ export type VoiceRecording = {
   filename: string;
   /** Makes the record idempotent: the same message never creates two operations. */
   key: string;
+  /** Called when the work moves on, so the chat can show progress. */
+  onStage?: (stage: "parsing") => Promise<void>;
 };
 
 const MAX_AMOUNT = 999_999_999_999;
@@ -52,6 +54,7 @@ export class VoiceTransactionService {
       throw new VoiceError("Не удалось разобрать речь. Попробуйте записать ещё раз");
     }
 
+    await input.onStage?.("parsing");
     const owner = await this.owners.ensureOwner(input.telegramId);
     const [accounts, categories] = await Promise.all([
       this.accounts.list(owner.id),

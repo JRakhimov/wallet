@@ -4,6 +4,7 @@ import { DateTime } from "luxon";
 import { decimal, operationInclude } from "../operations/operation.view";
 import { OperationsService } from "../operations/operations.service";
 import { PrismaService } from "../../prisma/prisma.service";
+import { computeInsights, InsightRow, insightsRange } from "./insights";
 import { transactionsCsv } from "./transactions-csv";
 
 type CategoryTotal = { id: string; name: string; icon: string; value: Prisma.Decimal };
@@ -79,6 +80,39 @@ export class ReportsService {
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([date, value]) => ({ date, value: value.toFixed(2) })),
     };
+  }
+
+  /** Spending patterns of a month: recent days, weeks, weekdays, trends and facts. */
+  async insights(ownerId: string, requestedMonth?: string) {
+    const { timezone, month } = await this.operations.buildFilter(ownerId, {
+      month: requestedMonth,
+    });
+    const now = DateTime.now();
+    const [operations, budget] = await this.db.$transaction([
+      this.db.operation.findMany({
+        where: {
+          ownerId,
+          deletedAt: null,
+          kind: { in: ["expense", "refund"] },
+          occurredAt: insightsRange(month, timezone, now),
+        },
+        include: { category: true },
+      }),
+      this.db.budget.findUnique({ where: { ownerId_month: { ownerId, month } } }),
+    ]);
+
+    const rows: InsightRow[] = operations.map((operation) => ({
+      occurredAt: operation.occurredAt,
+      kind: operation.kind as InsightRow["kind"],
+      amount: operation.amount,
+      note: operation.note,
+      category: {
+        id: operation.category!.id,
+        name: operation.category!.name,
+        icon: operation.category!.icon,
+      },
+    }));
+    return computeInsights({ rows, month, timezone, now, budget: budget?.amount ?? null });
   }
 
   async exportCsv(ownerId: string, month?: string) {

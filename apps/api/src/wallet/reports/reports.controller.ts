@@ -15,6 +15,11 @@ export class ReportsController {
     return this.reports.summary(ownerId, month);
   }
 
+  @Get("reports/insights")
+  insights(@OwnerId() ownerId: string, @Query("month", optionalMonthPipe) month?: string) {
+    return this.reports.insights(ownerId, month);
+  }
+
   @Get("exports/transactions.csv")
   @Header("Content-Type", "text/csv; charset=utf-8")
   @Header("Content-Disposition", 'attachment; filename="wallet.csv"')

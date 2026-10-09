@@ -183,7 +183,13 @@ test("a voice message is acknowledged, recorded once and the result is sent back
   const recorded: { key: string; filename: string; size: number }[] = [];
   const voice = {
     enabled: true,
-    async record(input: { key: string; filename: string; audio: Buffer }) {
+    async record(input: {
+      key: string;
+      filename: string;
+      audio: Buffer;
+      onStage: (stage: "parsing") => Promise<void>;
+    }) {
+      await input.onStage("parsing");
       recorded.push({ key: input.key, filename: input.filename, size: input.audio.length });
       return "Расход 45 000 сум за обед записан";
     },
@@ -194,13 +200,17 @@ test("a voice message is acknowledged, recorded once and the result is sent back
   await bot.handleUpdate(voiceUpdate);
 
   assert.deepEqual(sent, ["Принято в обработку…"]);
-  assert.deepEqual(edited, ["Расход 45 000 сум за обед записан"]);
+  assert.deepEqual(edited, [
+    "Распознаём голос…",
+    "Определяем сумму и категорию…",
+    "Расход 45 000 сум за обед записан",
+  ]);
   assert.deepEqual(silent, [true]);
   assert.deepEqual(recorded, [{ key: "telegram-voice-77", filename: "voice.ogg", size: 3 }]);
 });
 
 test("voice failures are reported in the chat; strangers and long recordings are not processed", async (t) => {
-  const { sent, edited } = mockTelegram(t);
+  const { sent, edited, silent } = mockTelegram(t);
   const voice = {
     enabled: true,
     async record() {
@@ -210,15 +220,19 @@ test("voice failures are reported in the chat; strangers and long recordings are
   const bot = new TelegramBotService(database() as unknown as PrismaService, config, voice);
 
   await bot.handleUpdate(voiceUpdate);
-  assert.deepEqual(sent, ["Принято в обработку…"]);
-  assert.deepEqual(edited, ["Не понял"]);
+  // The status turns into "failed", and the reason arrives as a separate message with sound.
+  assert.deepEqual(sent, ["Принято в обработку…", "Не понял\nОперация не записана."]);
+  assert.deepEqual(edited, ["Распознаём голос…", "Не удалось распознать"]);
+  assert.deepEqual(silent, [true, false]);
 
   sent.length = 0;
   await bot.handleUpdate({
     update_id: 78,
     message: { ...voiceUpdate.message, voice: { file_id: "x", duration: 600 } },
   });
-  assert.deepEqual(sent, ["Сообщение слишком длинное. Запишите короче, до двух минут"]);
+  assert.deepEqual(sent, [
+    "Сообщение слишком длинное. Запишите короче, до двух минут\nОперация не записана.",
+  ]);
 
   sent.length = 0;
   await bot.handleUpdate({
@@ -232,5 +246,5 @@ test("voice commands report that they are not configured", async (t) => {
   const { sent } = mockTelegram(t);
   const bot = new TelegramBotService(database() as unknown as PrismaService, config, noVoice);
   await bot.handleUpdate(voiceUpdate);
-  assert.deepEqual(sent, ["Голосовые команды не настроены на сервере"]);
+  assert.deepEqual(sent, ["Голосовые команды не настроены на сервере.\nОперация не записана."]);
 });

@@ -548,3 +548,157 @@
     font-size: 11px;
   }
 }
+
+/* Reports: dynamics. */
+.report-views {
+  margin-bottom: 14px;
+}
+.insight-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.insight-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 14px;
+}
+.insight-row.compact {
+  font-size: 13px;
+}
+.insight-row .insight-label {
+  flex: 1;
+  min-width: 0;
+}
+.insight-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.insight-row.compact .insight-label {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+.insight-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.change {
+  min-width: 52px;
+  text-align: right;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.change.up {
+  color: var(--danger);
+}
+.change.down {
+  color: var(--accent);
+}
+.change.flat {
+  color: var(--muted);
+}
+.week-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.week-row .progress {
+  margin: 6px 0 4px;
+}
+.progress i.peak,
+.history-track i.current {
+  background: var(--accent);
+}
+.insight-tag {
+  margin-left: 8px;
+  padding: 2px 7px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+}
+.insight-tag.peak {
+  background: var(--surface-soft);
+  color: var(--text);
+}
+.weekday-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.weekday-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 0;
+}
+.weekday-card.busier {
+  outline: 1.5px solid var(--accent);
+}
+.weekday-card strong {
+  font-size: 20px;
+}
+.weekday-card strong small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+.weekday-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+.forecast-value {
+  font-size: 24px;
+  letter-spacing: -0.5px;
+}
+.forecast-budget {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.forecast-budget.over {
+  color: var(--danger);
+}
+.forecast-budget.ok {
+  color: var(--accent);
+}
+.history-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  height: 150px;
+}
+.history-col {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+  color: var(--muted);
+  font-size: 11px;
+}
+.history-track {
+  display: flex;
+  flex: 1;
+  align-items: flex-end;
+  width: 100%;
+}
+.history-track i {
+  display: block;
+  width: 100%;
+  min-height: 2px;
+  border-radius: 6px 6px 2px 2px;
+  background: var(--border);
+}

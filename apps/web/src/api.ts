@@ -46,6 +46,64 @@ export type Summary = {
   categories: { id: string; name: string; icon: string; value: string }[];
   days: { date: string; value: string }[];
 };
+/** Spending patterns of a month: GET /reports/insights. Amounts are strings with two decimals. */
+export type Insights = {
+  month: string;
+  today: string;
+  recent: {
+    /** The usual day: average of the 30 days before the last three. */
+    average: string;
+    days: { date: string; value: string; changePercent: number | null }[];
+  };
+  weeks: {
+    start: string;
+    end: string;
+    /** Days of the week that are in the month and not in the future. */
+    days: number;
+    value: string;
+    count: number;
+    current: boolean;
+    peak: boolean;
+  }[];
+  weekdays: Record<"weekday" | "weekend", WeekdayGroup>;
+  trends: {
+    previous: {
+      month: string;
+      comparedDays: number;
+      total: string;
+      previousTotal: string;
+      changePercent: number | null;
+      categories: {
+        id: string;
+        name: string;
+        icon: string;
+        value: string;
+        previous: string;
+        changePercent: number | null;
+      }[];
+    };
+    forecast: {
+      perDay: string;
+      projected: string;
+      budget: string | null;
+      exceedsBudget: boolean | null;
+    } | null;
+    history: { month: string; value: string }[];
+  };
+  facts: {
+    count: number;
+    averageCheck: string | null;
+    biggest: { amount: string; note: string; category: string; date: string } | null;
+    busiestDay: { date: string; value: string } | null;
+    topNotes: { note: string; count: number; total: string }[];
+  };
+};
+type WeekdayGroup = {
+  total: string;
+  days: number;
+  perDay: string;
+  topCategory: { name: string; icon: string; value: string } | null;
+};
 export type OperationInput = {
   kind: "expense" | "income" | "transfer" | "adjustment" | "refund";
   amount: string;

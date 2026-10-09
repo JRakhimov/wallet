@@ -32,6 +32,9 @@ const RETRY_DELAY_MS = 5000;
 const START_COMMAND = /^\/start(?:@[A-Za-z0-9_]+)?(?:\s|$)/;
 const WELCOME_TEXT = "Ваши личные приложения. Выберите, что открыть.";
 const VOICE_ACCEPTED_TEXT = "Принято в обработку…";
+const VOICE_RECOGNIZING_TEXT = "Распознаём голос…";
+const VOICE_PARSING_TEXT = "Определяем сумму и категорию…";
+const VOICE_FAILED_STATUS = "Не удалось распознать";
 const VOICE_FAILED_TEXT = "Не удалось обработать сообщение. Попробуйте ещё раз";
 const VOICE_TOO_LONG_TEXT = "Сообщение слишком длинное. Запишите короче, до двух минут";
 // A spoken note about one expense is a few seconds; this keeps a mistaken long recording cheap.
@@ -107,13 +110,16 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
     }
   }
 
-  /** Acknowledges a voice message, records it and reports the result in the chat. */
+  /**
+   * Reports a voice message in one chat message that changes with the progress and ends with
+   * the result. A failure edits it to "Не удалось распознать" and sends a separate message
+   * with sound, so the owner knows that nothing was recorded. Everything else is silent.
+   */
   private async handleSpeech(message: Message, speech: SpeechFile, updateId: number) {
     const chatId = message.chat.id;
-    // The first message is sent silently; later ones edit it, so the chat shows one status
-    // line that turns from "accepted" into the result. Edits never make a sound.
     let statusId: number | undefined;
-    const reply = async (text: string) => {
+
+    const show = async (text: string) => {
       try {
         if (statusId) {
           await this.call("editMessageText", { chat_id: chatId, message_id: statusId, text });
@@ -122,45 +128,59 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
       } catch {
         // Edit failed (e.g. the message was deleted): send a new one instead.
       }
-      try {
-        const sent = await this.call<{ message_id?: number }>("sendMessage", {
-          chat_id: chatId,
-          text,
-          disable_notification: true,
-        });
-        statusId = sent.message_id;
-      } catch {
-        this.logger.warn("Could not send a voice reply");
+      statusId = await this.send(chatId, text, true);
+    };
+    const fail = async (reason: string) => {
+      if (statusId) {
+        await show(VOICE_FAILED_STATUS);
       }
+      await this.send(chatId, `${reason}\nОперация не записана.`, false);
     };
 
     if (!this.voice.enabled) {
-      await reply("Голосовые команды не настроены на сервере");
+      await fail("Голосовые команды не настроены на сервере.");
       return;
     }
     if ((speech.duration ?? 0) > MAX_VOICE_SECONDS || (speech.file_size ?? 0) > MAX_VOICE_BYTES) {
-      await reply(VOICE_TOO_LONG_TEXT);
+      await fail(VOICE_TOO_LONG_TEXT);
       return;
     }
 
-    await reply(VOICE_ACCEPTED_TEXT);
+    await show(VOICE_ACCEPTED_TEXT);
     try {
+      await show(VOICE_RECOGNIZING_TEXT);
       const audio = await this.download(speech.file_id);
       const text = await this.voice.record({
         telegramId: BigInt(message.from!.id),
         audio: audio.data,
         filename: audio.filename,
         key: `telegram-voice-${updateId}`,
+        onStage: () => show(VOICE_PARSING_TEXT),
       });
-      await reply(text);
+      await show(text);
     } catch (error) {
       if (error instanceof VoiceError) {
-        await reply(error.message);
+        await fail(error.message);
         return;
       }
       // The error may carry request URLs with the bot token: log only its type.
       this.logger.error(`Voice message failed: ${error instanceof Error ? error.name : "unknown"}`);
-      await reply(VOICE_FAILED_TEXT);
+      await fail(VOICE_FAILED_TEXT);
+    }
+  }
+
+  /** Sends a message; returns its id, or undefined if Telegram refused. */
+  private async send(chatId: number, text: string, silent: boolean) {
+    try {
+      const sent = await this.call<{ message_id?: number }>("sendMessage", {
+        chat_id: chatId,
+        text,
+        disable_notification: silent,
+      });
+      return sent.message_id;
+    } catch {
+      this.logger.warn("Could not send a voice reply");
+      return undefined;
     }
   }
 
