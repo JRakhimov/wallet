@@ -36,7 +36,8 @@ export async function request<T>(
   const response = await fetch(apiUrl(path), {
     ...rest,
     headers: {
-      "Content-Type": "application/json",
+      // JSON bodies are strings; FormData gets multipart with a boundary from the browser.
+      ...(typeof rest.body === "string" ? { "Content-Type": "application/json" } : {}),
       ...authHeaders(),
       ...(key ? { "Idempotency-Key": key } : {}),
       ...rest.headers,

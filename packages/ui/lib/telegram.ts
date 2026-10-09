@@ -1,6 +1,6 @@
 /** Telegram Mini App SDK: loading, window setup and theme colors. */
 
-// Keep in sync with the preload link in vite.config.ts.
+// Keep in sync with the preload link in packages/ui/vite/mini-app-config.ts.
 export const TELEGRAM_SDK_URL = "https://telegram.org/js/telegram-web-app.js";
 
 declare global {

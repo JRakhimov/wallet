@@ -10,3 +10,5 @@ backups/
 .DS_Store
 *.tsbuildinfo
 .test-build/
+# Local meal photos (PHOTO_STORAGE_DIR)
+data/

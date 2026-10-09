@@ -46,13 +46,6 @@ export type Summary = {
   categories: { id: string; name: string; icon: string; value: string }[];
   days: { date: string; value: string }[];
 };
-export type Owner = {
-  id: string;
-  name: string;
-  timezone: string;
-  theme: "system" | "light" | "dark";
-  currency: string;
-};
 export type OperationInput = {
   kind: "expense" | "income" | "transfer" | "adjustment" | "refund";
   amount: string;

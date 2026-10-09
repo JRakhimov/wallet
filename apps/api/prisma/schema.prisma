@@ -19,6 +19,9 @@ model Owner {
   operations Operation[]
   sessions   Session[]
   budgets    Budget[]
+  nutritionProfile NutritionProfile?
+  meals            Meal[]
+  mealPhotos       MealPhoto[]
 }
 
 model Session {
@@ -106,4 +109,87 @@ model Budget {
 model BotUpdate {
   updateId BigInt @id
   processedAt DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// Nutrition mini app
+// ---------------------------------------------------------------------------
+
+// Body data and goal. BMR, TDEE and calculated targets are derived on every read
+// (age changes over time), so only inputs and manual target overrides are stored.
+model NutritionProfile {
+  ownerId          String   @id @db.Uuid
+  owner            Owner    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  sex              String   // male | female
+  birthDate        DateTime @db.Date
+  heightCm         Int
+  weightKg         Decimal  @db.Decimal(5, 1)
+  activityLevel    String   // sedentary | light | moderate | high | very_high
+  goal             String   @default("lose") // lose | maintain | gain
+  deficitPercent   Int      @default(20)
+  surplusPercent   Int      @default(10)
+  // Manual daily targets; null means "use the calculated value".
+  kcalOverride     Int?
+  proteinGOverride Int?
+  fatGOverride     Int?
+  carbsGOverride   Int?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+// A meal in the diary. Created as a draft from LLM analysis (or manually), becomes part of
+// the diary once confirmed. Totals are denormalized from items for fast day summaries.
+model Meal {
+  id             String     @id @default(uuid()) @db.Uuid
+  ownerId        String     @db.Uuid
+  owner          Owner      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  eatenAt        DateTime   @db.Timestamptz(3)
+  source         String     // photo | text
+  // analyzing: LLM is working | failed: see error | draft: recognized, awaits review | confirmed: in the diary
+  status         String     @default("draft")
+  error          String?    // owner-facing reason when status is failed
+  comment        String     @default("")
+  photoId        String?    @db.Uuid
+  photo          MealPhoto? @relation(fields: [photoId], references: [id])
+  kcal           Decimal    @db.Decimal(7, 1)
+  proteinG       Decimal    @db.Decimal(6, 1)
+  fatG           Decimal    @db.Decimal(6, 1)
+  carbsG         Decimal    @db.Decimal(6, 1)
+  // LLM output kept for the review screen and quality checks: assumptions, questions, meta
+  analysis       Json?
+  idempotencyKey String
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  deletedAt      DateTime?
+  items          MealItem[]
+
+  @@unique([ownerId, idempotencyKey])
+  @@index([ownerId, eatenAt])
+}
+
+model MealItem {
+  id         String  @id @default(uuid()) @db.Uuid
+  mealId     String  @db.Uuid
+  meal       Meal    @relation(fields: [mealId], references: [id], onDelete: Cascade)
+  position   Int
+  name       String
+  grams      Decimal @db.Decimal(6, 1)
+  kcal       Decimal @db.Decimal(7, 1)
+  proteinG   Decimal @db.Decimal(6, 1)
+  fatG       Decimal @db.Decimal(6, 1)
+  carbsG     Decimal @db.Decimal(6, 1)
+  confidence String? // low | medium | high, from the LLM; null when entered by hand
+
+  @@index([mealId])
+}
+
+// Meal photo stored by PhotoStorage (local disk for now): full image and thumbnail.
+model MealPhoto {
+  id         String   @id @default(uuid()) @db.Uuid
+  ownerId    String   @db.Uuid
+  owner      Owner    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  storageKey String
+  thumbKey   String
+  createdAt  DateTime @default(now())
+  meals      Meal[]
 }

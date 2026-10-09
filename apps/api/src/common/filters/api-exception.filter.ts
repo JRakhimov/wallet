@@ -26,9 +26,20 @@ export class ApiExceptionFilter implements ExceptionFilter {
       return;
     }
 
-    this.logger.error(
-      `Request failed: ${error instanceof Error ? error.constructor.name : "Unknown error"}`,
-    );
+    this.logger.error(`Request failed: ${describe(error)}`);
     res.status(500).json({ message: "Не удалось выполнить запрос. Попробуйте снова" });
   }
+}
+
+/**
+ * Short log line for an unexpected error. Prisma errors get their code and model
+ * (e.g. P2021 for a missing table) but never the full message, which may contain data.
+ */
+function describe(error: unknown) {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    const model = typeof error.meta?.modelName === "string" ? ` ${error.meta.modelName}` : "";
+    const table = typeof error.meta?.table === "string" ? ` table ${error.meta.table}` : "";
+    return `${error.constructor.name} ${error.code}${model}${table}`;
+  }
+  return error instanceof Error ? error.constructor.name : "Unknown error";
 }

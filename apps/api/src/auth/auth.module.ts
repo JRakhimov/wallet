@@ -1,6 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
-import { RateLimitMiddleware } from "../common/middleware/rate-limit.middleware";
+import { rateLimit } from "../common/middleware/rate-limit.middleware";
 import { OwnerModule } from "../owner/owner.module";
 import { AuthController } from "./auth.controller";
 import { AuthGuard } from "./auth.guard";
@@ -13,6 +13,6 @@ import { AuthService } from "./auth.service";
 })
 export class AuthModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(RateLimitMiddleware).forRoutes(AuthController);
+    consumer.apply(rateLimit({ maxRequests: 60 })).forRoutes(AuthController);
   }
 }

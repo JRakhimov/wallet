@@ -1,0 +1,586 @@
+/* Nutrition-specific styles. Shared styles and theme tokens come from @ui/styles. */
+
+/* Onboarding: full-screen steps with actions pinned to the bottom. */
+.onboarding {
+  display: flex;
+  flex-direction: column;
+  max-width: 480px;
+  height: var(--tg-viewport-stable-height, 100dvh);
+  margin: 0 auto;
+  background: var(--bg);
+}
+.onboarding-top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 43px;
+  padding: 16px 20px 0;
+}
+.onboarding-logo {
+  display: grid;
+  place-items: center;
+  width: 43px;
+  height: 43px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+}
+.step-dots {
+  display: flex;
+  flex: 1;
+  gap: 6px;
+}
+.step-dots i {
+  flex: 1;
+  height: 4px;
+  border-radius: 99px;
+  background: var(--border);
+}
+.step-dots i.done {
+  background: var(--accent);
+}
+.onboarding-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 20px;
+}
+.onboarding-body h1 {
+  margin: 0;
+}
+.onboarding-hint {
+  margin: -10px 0 4px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.onboarding-actions {
+  padding: 12px 20px max(16px, env(safe-area-inset-bottom), var(--tg-safe-area-inset-bottom, 0px));
+}
+
+/* Plan: energy expenditure and daily targets. */
+.plan-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.plan-energy {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.plan-energy > div,
+.plan-target {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--surface);
+}
+.plan-energy span,
+.plan-target > span {
+  color: var(--muted);
+  font-size: 13px;
+}
+.plan-energy strong {
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
+.plan-energy small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.plan-target {
+  background: var(--accent-soft);
+}
+.plan-target strong {
+  color: var(--accent);
+  font-size: 30px;
+  font-variant-numeric: tabular-nums;
+}
+.plan-target strong small {
+  font-size: 15px;
+}
+.plan-macros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 13px;
+}
+
+/* Today: calories ring and macro cards. */
+.calorie-ring {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.calorie-ring svg {
+  /* Start the arc at 12 o'clock. */
+  transform: rotate(-90deg);
+}
+.ring-track {
+  fill: none;
+  stroke: var(--surface-soft);
+}
+.ring-value {
+  fill: none;
+  stroke: var(--accent);
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.4s ease;
+}
+.calorie-ring.over .ring-value {
+  stroke: var(--danger);
+}
+.ring-label {
+  position: absolute;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 168px;
+  height: 168px;
+}
+.ring-label strong {
+  font-size: 30px;
+  font-variant-numeric: tabular-nums;
+}
+.ring-label span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.calorie-ring.over .ring-label strong {
+  color: var(--danger);
+}
+.ring-caption {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+/* Protein, carbs and fat: three cards in one row. */
+.macro-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.macro-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px 10px 12px 12px;
+  border-radius: 16px;
+  background: var(--surface);
+}
+.macro-amount {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+}
+.macro-amount strong {
+  color: var(--text);
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.macro-label {
+  /* Two lines on narrow screens: "Осталось / углеводов". */
+  min-height: 2.6em;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+.macro-card.over .macro-amount,
+.macro-card.over .macro-amount strong {
+  color: var(--danger);
+}
+.macro-track {
+  height: 5px;
+  margin-top: auto;
+  border-radius: 99px;
+  background: var(--surface-soft);
+  overflow: hidden;
+}
+.macro-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+.macro-card.over .macro-track i {
+  background: var(--danger);
+}
+
+.diary-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 32px 20px;
+}
+
+/* Goal pace (deficit or surplus percent). */
+.pace {
+  margin-top: 14px;
+}
+.pace .segmented {
+  margin: 8px 0 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ring-value,
+  .macro-track i {
+    transition: none;
+  }
+}
+
+/* Diary: list of the day's meals. */
+.meal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.meal-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px 10px 10px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+}
+.meal-thumb {
+  display: grid;
+  flex: 0 0 52px;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.meal-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.meal-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.meal-text strong {
+  font-size: 15px;
+}
+.meal-text strong small {
+  margin-left: 6px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  opacity: 0.75;
+}
+.meal-text > small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.meal-kcal {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.meal-kcal small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+/* Adding a meal. */
+.meal-photo-preview {
+  width: 100%;
+  max-height: 260px;
+  object-fit: cover;
+  border-radius: 14px;
+}
+.analyzing {
+  align-items: center;
+  padding: 24px 0 12px;
+  text-align: center;
+}
+
+/* Review of recognized items. */
+.review-totals {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--accent-soft);
+}
+.review-totals strong {
+  color: var(--accent);
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
+.review-totals span {
+  color: var(--muted);
+  font-size: 13px;
+}
+.review-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.review-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.review-item .tag {
+  align-self: flex-start;
+}
+.review-item-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.review-item-name {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 0;
+  border: 0;
+  border-bottom: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+}
+.review-remove {
+  width: 32px;
+  height: 32px;
+  color: var(--muted);
+  background: transparent;
+}
+.review-item-values {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.review-grams {
+  display: flex;
+  flex: 0 0 104px;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.review-grams .field {
+  min-height: 38px;
+  padding: 6px 10px;
+}
+.review-nutrients {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.review-notes {
+  color: var(--muted);
+  font-size: 13px;
+}
+.review-notes > span {
+  font-weight: 600;
+}
+.review-notes ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.review-clarify {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.manual-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--surface-soft);
+}
+.manual-item-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.manual-item-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Meal that is being recognized or waits for review. */
+.meal-card.pending {
+  position: relative;
+  padding: 0;
+}
+.meal-card-main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 10px 12px 10px 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+.meal-card.pending:not(.analyzing) .meal-card-main {
+  padding-right: 4px;
+}
+.meal-dismiss {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 52px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.pending-note {
+  color: var(--muted);
+}
+.meal-card.pending.ready .pending-note {
+  color: var(--accent);
+}
+.meal-card.pending.failed .pending-note {
+  color: var(--danger);
+  white-space: normal;
+}
+.meal-thumb {
+  position: relative;
+}
+/*
+ * A line sweeping over the photo: down with a tail above it, then back up with the tail
+ * below. The element starts and ends fully outside the thumbnail, so no line is left at
+ * the turning points; the flip happens while it is out of sight.
+ */
+.meal-thumb.scanning::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 60%;
+  border-bottom: 2px solid var(--accent);
+  /* Eased stops: a plain two-color gradient shows a visible edge where the tail begins. */
+  background: linear-gradient(
+    transparent 0%,
+    color-mix(in srgb, var(--accent-soft) 8%, transparent) 25%,
+    color-mix(in srgb, var(--accent-soft) 30%, transparent) 50%,
+    color-mix(in srgb, var(--accent-soft) 65%, transparent) 75%,
+    var(--accent-soft) 100%
+  );
+  animation: scan 3s linear infinite;
+}
+@keyframes scan {
+  0% {
+    transform: translateY(-105%) scaleY(1);
+    animation-timing-function: ease-in-out;
+  }
+  50% {
+    transform: translateY(170%) scaleY(1);
+  }
+  50.1% {
+    transform: translateY(170%) scaleY(-1);
+    animation-timing-function: ease-in-out;
+  }
+  100% {
+    transform: translateY(-105%) scaleY(-1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .meal-thumb.scanning::after {
+    animation: none;
+    transform: translateY(60%);
+  }
+}
+
+/* History: one row per day, opening to the day's meals. */
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.history-day {
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--surface);
+}
+.history-day-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 14px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+.history-day-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.history-day-text small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.history-chevron {
+  color: var(--muted);
+  transition: transform 0.2s;
+}
+.history-day-head[aria-expanded="true"] .history-chevron {
+  transform: rotate(180deg);
+}
+.history-bar {
+  position: absolute;
+  inset: auto 14px 7px;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--border);
+}
+.history-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.history-bar i.exceeded {
+  background: var(--danger);
+}
+.history-meals {
+  padding: 0 8px 8px;
+}
+.history-meals .meal-card {
+  background: var(--surface-soft);
+}

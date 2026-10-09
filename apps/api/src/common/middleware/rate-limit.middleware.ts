@@ -1,37 +1,49 @@
-import { Injectable, NestMiddleware } from "@nestjs/common";
+import { Injectable, NestMiddleware, Type } from "@nestjs/common";
 import { NextFunction, Request, Response } from "express";
-
-const WINDOW_MS = 60_000;
-const MAX_REQUESTS_PER_WINDOW = 60;
 
 type Window = { startedAt: number; count: number };
 
-/** Simple in-memory fixed-window limiter keyed by client IP. */
-@Injectable()
-export class RateLimitMiddleware implements NestMiddleware {
-  private readonly windows = new Map<string, Window>();
+const MINUTE_MS = 60_000;
 
-  use(req: Request, res: Response, next: NextFunction) {
-    const now = Date.now();
-    this.dropExpired(now);
+/**
+ * Creates an in-memory fixed-window limiter keyed by client IP, e.g.
+ * `consumer.apply(rateLimit({ maxRequests: 60 })).forRoutes(AuthController)`.
+ * Each call returns its own middleware class, so routes keep separate counters.
+ */
+export function rateLimit(options: {
+  maxRequests: number;
+  windowMs?: number;
+}): Type<NestMiddleware> {
+  const windowMs = options.windowMs ?? MINUTE_MS;
 
-    const ip = req.socket.remoteAddress || "unknown";
-    const window = this.windows.get(ip) ?? { startedAt: now, count: 0 };
-    window.count++;
-    this.windows.set(ip, window);
+  @Injectable()
+  class RateLimitMiddleware implements NestMiddleware {
+    private readonly windows = new Map<string, Window>();
 
-    if (window.count > MAX_REQUESTS_PER_WINDOW) {
-      res.status(429).json({ message: "Слишком много попыток. Подождите минуту" });
-      return;
+    use(req: Request, res: Response, next: NextFunction) {
+      const now = Date.now();
+      this.dropExpired(now);
+
+      const ip = req.socket.remoteAddress || "unknown";
+      const window = this.windows.get(ip) ?? { startedAt: now, count: 0 };
+      window.count++;
+      this.windows.set(ip, window);
+
+      if (window.count > options.maxRequests) {
+        res.status(429).json({ message: "Слишком много попыток. Подождите минуту" });
+        return;
+      }
+      next();
     }
-    next();
-  }
 
-  private dropExpired(now: number) {
-    for (const [ip, window] of this.windows) {
-      if (now - window.startedAt > WINDOW_MS) {
-        this.windows.delete(ip);
+    private dropExpired(now: number) {
+      for (const [ip, window] of this.windows) {
+        if (now - window.startedAt > windowMs) {
+          this.windows.delete(ip);
+        }
       }
     }
   }
+
+  return RateLimitMiddleware;
 }

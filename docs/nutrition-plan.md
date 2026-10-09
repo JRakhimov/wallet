@@ -1,6 +1,8 @@
 # План: приложение «Питание» (nutrition)
 
-Второе мини-приложение суперапа: дневник питания с распознаванием еды по фото и тексту через LLM. Строится по рецепту из [PLATFORM.md](PLATFORM.md), раздел 4. Тема синяя, `appId` — `nutrition`.
+Второе мини-приложение суперапа: дневник питания с распознаванием еды по фото и тексту через LLM.
+
+**Статус:** этапы 1–3 сделаны (профиль и нормы, дневник с вводом по фото и тексту, адаптеры Claude/Gemini/OpenAI). Дальше — этап 4 (история и вес). Строится по рецепту из [PLATFORM.md](PLATFORM.md), раздел 4. Тема синяя, `appId` — `nutrition`.
 
 ## 1. Сценарии
 
@@ -50,17 +52,21 @@
 - **Углеводы** — остаток калорий (4 ккал в 1 г белка или углеводов, 9 ккал в 1 г жира).
 - При смене цели или веса цели пересчитываются, ручные значения сохраняются (см. ниже).
 
-**Ручные правки.** В профиле хранятся и рассчитанные значения, и ручные. Если я поменял цель вручную, она не перезаписывается при изменении веса. Кнопка «Пересчитать» сбрасывает ручные значения на рассчитанные.
+**Ручные правки.**
+
+- BMR, TDEE и расчётные нормы не хранятся, а считаются при каждом запросе, потому что возраст меняется со временем. В базе хранятся только исходные данные и ручные нормы.
+- Ручная норма не перезаписывается при изменении веса или цели. «Вернуть расчётные значения» сбрасывает все ручные нормы.
+- Углеводы без ручного значения всегда заполняют остаток калорий после белков и жиров. Поэтому если вручную задать калории, углеводы подстроятся и сумма БЖУ сойдётся с нормой.
 
 ## 3. Распознавание еды через LLM
 
 ### 3.1 Поток данных
 
 ```
-Mini App: фото (камера) + комментарий
-   │  POST /api/nutrition/meals/analyze  (multipart)
+Mini App: фото (камера или галерея) → сжатие в браузере (≤1568px + миниатюра 400px, JPEG, без EXIF)
+   │  POST /api/nutrition/meals/analyze  (multipart: photo, thumbnail, comment, eatenAt)
    ▼
-API: проверка → сжатие фото (sharp: ≤1568px, JPEG, без EXIF) → сохранение фото на диск
+API: проверка JPEG и размера → распознавание → сохранение фото на диск
    │
    ▼
 MealAnalyzer (выбранный провайдер: Claude / Gemini / OpenAI)
@@ -186,24 +192,22 @@ type MealAnalysisResult = {
 
 ```prisma
 model NutritionProfile {
-  ownerId        String   @id @db.Uuid          // один профиль на владельца
-  sex            String                          // male | female
-  birthDate      DateTime @db.Date
-  heightCm       Int
-  weightKg       Decimal  @db.Decimal(5, 1)
-  activityLevel  String                          // sedentary | light | moderate | high | very_high
-  goal           String   @default("lose")       // lose | maintain | gain — выбирается в настройках
-  deficitPercent Int      @default(20)           // для похудения, 10–25
-  surplusPercent Int      @default(10)           // для набора, 5–15
-  // Рассчитанные значения хранятся на момент последнего пересчёта; *Override — ручные правки
-  bmrKcal        Int
-  tdeeKcal       Int
-  targetKcal     Int
-  targetProteinG Int
-  targetFatG     Int
-  targetCarbsG   Int
-  overrides      Json     @default("{}")         // какие цели заданы вручную
-  updatedAt      DateTime @updatedAt
+  ownerId          String   @id @db.Uuid          // один профиль на владельца
+  sex              String                          // male | female
+  birthDate        DateTime @db.Date
+  heightCm         Int
+  weightKg         Decimal  @db.Decimal(5, 1)
+  activityLevel    String                          // sedentary | light | moderate | high | very_high
+  goal             String   @default("lose")       // lose | maintain | gain — выбирается в профиле
+  deficitPercent   Int      @default(20)           // для похудения, 10–25
+  surplusPercent   Int      @default(10)           // для набора, 5–15
+  // Ручные нормы; null — значение считается автоматически
+  kcalOverride     Int?
+  proteinGOverride Int?
+  fatGOverride     Int?
+  carbsGOverride   Int?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 }
 
 model WeightEntry {
@@ -219,7 +223,7 @@ model Meal {
   ownerId        String    @db.Uuid
   eatenAt        DateTime  @db.Timestamptz(3)    // название приёма считается по этому времени
   source         String                          // photo | text | manual
-  status         String    @default("draft")     // draft | confirmed
+  status         String    @default("draft")     // analyzing | failed | draft | confirmed (+ error)
   comment        String    @default("")          // мой комментарий к еде
   photoId        String?   @db.Uuid
   // Итоги по блюдам, денормализованы для быстрых сводок за день
@@ -275,21 +279,23 @@ model MealPhoto {
 
 ## 6. API (`/api/nutrition/...`)
 
-| Метод и путь                               | Назначение                                                                          |
-| ------------------------------------------ | ----------------------------------------------------------------------------------- |
-| `GET /profile`                             | профиль и цели или `null`, если онбординг не пройден                                |
-| `PUT /profile`                             | сохранить данные и цель, пересчитать BMR, TDEE и цели (ручные значения сохраняются) |
-| `POST /profile/recalculate`                | сбросить ручные цели на рассчитанные                                                |
-| `POST /meals/analyze`                      | multipart: `photo?`, `comment`, `eatenAt` → черновик. Заголовок `Idempotency-Key`   |
-| `POST /meals/:id/reanalyze`                | повторный анализ с уточнением                                                       |
-| `POST /meals`                              | ручной ввод без LLM                                                                 |
-| `PATCH /meals/:id`                         | правка блюд и полей (с `version`)                                                   |
-| `POST /meals/:id/confirm`                  | черновик → дневник                                                                  |
-| `DELETE /meals/:id`                        | удалить (мягко)                                                                     |
-| `GET /days/:date`                          | приёмы пищи за день, итоги, цели, остаток                                           |
-| `GET /days?from&to`                        | итоги по дням для истории и графиков                                                |
-| `POST /weight`, `GET /weight?from&to`      | вес                                                                                 |
-| `GET /photos/:id`, `GET /photos/:id/thumb` | фото с проверкой владельца                                                          |
+| Метод и путь                          | Назначение                                                                                                                                                                                               |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /profile`                        | профиль и цели или `null`, если онбординг не пройден                                                                                                                                                     |
+| `PUT /profile`                        | сохранить данные и цель, пересчитать BMR, TDEE и цели (ручные значения сохраняются)                                                                                                                      |
+| `PUT /profile/targets`                | ручные нормы; `null` возвращает норму к автоматической                                                                                                                                                   |
+| `POST /meals/analyze`                 | multipart: `photo?` + `thumbnail?`, `comment`, `eatenAt` → сразу приём пищи в статусе `analyzing`; распознавание идёт в фоне и даёт `draft` или `failed`. Заголовок `Idempotency-Key`. Лимит 10 в минуту |
+| `GET /meals/pending`                  | приёмы пищи в статусах `analyzing`, `failed`, `draft` (клиент опрашивает, пока есть `analyzing`)                                                                                                         |
+| `POST /meals/:id/retry`               | повторить распознавание нераспознанного приёма пищи                                                                                                                                                      |
+| `GET /history/:month`                 | итоги по дням месяца `ГГГГ-ММ`, новые сверху                                                                                                                                                             |
+| `POST /meals/:id/reanalyze`           | повторный анализ черновика с уточнением                                                                                                                                                                  |
+| `GET /meals/:id`                      | приём пищи                                                                                                                                                                                               |
+| `PUT /meals/:id`                      | сохранить проверенные блюда; черновик попадает в дневник                                                                                                                                                 |
+| `DELETE /meals/:id`                   | удалить (мягко)                                                                                                                                                                                          |
+| `GET /days/:date`                     | сохранённые приёмы пищи за день и итоги                                                                                                                                                                  |
+| `GET /days?from&to`                   | итоги по дням для истории и графиков                                                                                                                                                                     |
+| `POST /weight`, `GET /weight?from&to` | вес                                                                                                                                                                                                      |
+| `GET /photos/:id?size=full\|thumb`    | фото с проверкой владельца                                                                                                                                                                               |
 
 Структура бэкенда — `apps/api/src/nutrition/`:
 
@@ -299,7 +305,9 @@ model MealPhoto {
 - `analysis/` (интерфейс `MealAnalyzer` и адаптеры провайдеров, см. 3.2);
 - `photos/` (`PhotoStorage`, `LocalPhotoStorage`).
 
-Новые зависимости: `sharp`, SDK выбранных провайдеров LLM (сначала `@anthropic-ai/sdk`).
+Зависимости: `@anthropic-ai/sdk`, `openai`, `@google/genai`. Фото сжимаются в браузере (`apps/nutrition-web/src/lib/image.ts`), поэтому серверу не нужна библиотека обработки изображений.
+
+**Черновики**, которые не сохранили, удаляются при закрытии экрана проверки, а на сервере — через 24 часа вместе с фото.
 
 ## 7. Фронтенд (`apps/nutrition-web`)
 
@@ -330,7 +338,7 @@ model MealPhoto {
    - Черновик → проверка → дневник, итоги за день.
    - Ручной ввод.
 3. **Фото.**
-   - `PhotoStorage` на диске (volume `nutrition_photos`), сжатие через sharp.
+   - `PhotoStorage` на диске (volume `nutrition_photos`), сжатие в браузере.
    - Анализ по фото, миниатюры в дневнике.
 4. **История и вес.** Сводки по дням, график веса, пересчёт целей при новом весе.
 5. **Качество распознавания.**

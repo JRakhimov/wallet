@@ -13,7 +13,9 @@ import {
   Shapes,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { Account, Category, downloadCsv, Operation, Owner, Summary } from "../api";
+import { Account, Category, downloadCsv, Operation, Summary } from "../api";
+import { ThemeSelect } from "@ui/components/ThemeSelect";
+import { Owner } from "@ui/lib/owner";
 import { request } from "@ui/lib/api-client";
 import { OperationRow } from "../components/OperationRow";
 import { Sheet, SheetPresence } from "@ui/components/Sheet";
@@ -135,27 +137,7 @@ export function MorePage({
           <MenuRow Icon={LogOut} label="Закрыть приложение" onClick={closeTelegramApp} />
         )}
       </div>
-      <div className="appearance">
-        <span>Тема</span>
-        <div className="segmented">
-          {(["system", "light", "dark"] as const).map((theme) => (
-            <button
-              key={theme}
-              className={owner.theme === theme ? "active" : ""}
-              onClick={() =>
-                void request<Owner>("/settings", {
-                  method: "PATCH",
-                  body: JSON.stringify({ theme }),
-                })
-                  .then(() => qc.invalidateQueries({ queryKey: ["owner"] }))
-                  .catch((e) => setError(e.message))
-              }
-            >
-              {theme === "system" ? "Система" : theme === "light" ? "Светлая" : "Тёмная"}
-            </button>
-          ))}
-        </div>
-      </div>
+      <ThemeSelect value={owner.theme} onError={setError} />
       <button
         className="menu-row export-row"
         onClick={() => void downloadCsv(month).catch((e) => setError(e.message))}

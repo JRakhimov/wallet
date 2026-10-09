@@ -1,5 +1,5 @@
 import { ReactNode, useState } from "react";
-import { QueryClient } from "@tanstack/react-query";
+import { Query, QueryClient } from "@tanstack/react-query";
 import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persister";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { storageKey } from "./platform";
@@ -18,6 +18,14 @@ function createQueryClient() {
       },
     },
   });
+}
+
+/**
+ * Successful queries are saved to the device unless marked with `meta: { persist: false }`,
+ * e.g. queries returning object URLs, which are invalid after a reload.
+ */
+function isPersistable(query: Query) {
+  return query.state.status === "success" && query.meta?.persist !== false;
 }
 
 /**
@@ -40,7 +48,12 @@ export function QueryProvider({
   return (
     <PersistQueryClientProvider
       client={client}
-      persistOptions={{ persister, maxAge: DAY_MS, buster: cacheVersion }}
+      persistOptions={{
+        persister,
+        maxAge: DAY_MS,
+        buster: cacheVersion,
+        dehydrateOptions: { shouldDehydrateQuery: isPersistable },
+      }}
     >
       {children}
     </PersistQueryClientProvider>

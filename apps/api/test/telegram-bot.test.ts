@@ -110,3 +110,25 @@ test("local development does not start the Telegram bot", async (t) => {
   await bot.onModuleDestroy();
   assert.equal(fetch.mock.callCount(), 0);
 });
+
+test("/start shows a button for every deployed mini app", async (t) => {
+  const keyboards: unknown[] = [];
+  t.mock.method(globalThis, "fetch", async (_url: string, options: RequestInit) => {
+    keyboards.push(JSON.parse(String(options.body)).reply_markup.inline_keyboard);
+    return Response.json({ ok: true, result: true });
+  });
+
+  await new TelegramBotService(database() as unknown as PrismaService, config).handleUpdate(update);
+  const withNutrition = { ...config, nutritionAppUrl: "https://nutrition.example" };
+  await new TelegramBotService(database() as unknown as PrismaService, withNutrition).handleUpdate(
+    update,
+  );
+
+  assert.deepEqual(keyboards, [
+    [[{ text: "💳 Кошелёк", web_app: { url: config.miniAppUrl } }]],
+    [
+      [{ text: "💳 Кошелёк", web_app: { url: config.miniAppUrl } }],
+      [{ text: "🥗 Питание", web_app: { url: "https://nutrition.example" } }],
+    ],
+  ]);
+});

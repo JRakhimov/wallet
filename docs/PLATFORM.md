@@ -2,10 +2,10 @@
 
 Один Telegram-бот, внутри несколько личных мини-приложений (суперапп). Бэкенд один, у каждого приложения свой фронтенд. Все приложения выглядят одинаково и отличаются только цветом.
 
-| Приложение                | Статус                                       | Акцентный цвет | Фронтенд             |
-| ------------------------- | -------------------------------------------- | -------------- | -------------------- |
-| Кошелёк (учёт расходов)   | работает                                     | зелёный        | `apps/web`           |
-| Питание (подсчёт калорий) | план: [nutrition-plan.md](nutrition-plan.md) | синий          | `apps/nutrition-web` |
+| Приложение                | Статус                                                                          | Акцентный цвет | Фронтенд             |
+| ------------------------- | ------------------------------------------------------------------------------- | -------------- | -------------------- |
+| Кошелёк (учёт расходов)   | работает                                                                        | зелёный        | `apps/web`           |
+| Питание (подсчёт калорий) | этапы 1–3 из [плана](nutrition-plan.md): нормы, дневник, фото и текст через LLM | синий          | `apps/nutrition-web` |
 
 Документ описывает то, что есть в коде сейчас.
 
@@ -102,14 +102,26 @@ packages/ui/
     themes/green.css   токены зелёной темы (кошелёк)
     themes/blue.css    токены синей темы
     base.css           общие стили: оболочка, кнопки, поля, шторки, селекты, списки, состояния
-  components/          Sheet + SheetPresence, SelectField (+ тип SelectChoice), AmountInput, MonthSwitch
+  components/
+    AppShell.tsx       шапка с названием и иконкой, тост, прокручиваемый main, нижняя навигация
+    CenterState.tsx    полноэкранные состояния: загрузка, ошибка входа, истёкшая сессия
+    Sheet.tsx          шторка + SheetPresence (анимация закрытия)
+    SelectField.tsx    выпадающий выбор (+ тип SelectChoice)
+    AmountInput.tsx    поле суммы с разделителями разрядов
+    MonthSwitch.tsx    переключатель месяца
+    ThemeSelect.tsx    выбор темы (настройка владельца, общая для всех приложений)
   lib/
     platform.ts        configurePlatform({ appId, apiBaseUrl }); storageKey("session") → "wallet.session"
     api-client.ts      request(), ApiError, login()/relogin(), apiUrl(), authHeaders()
+    useAuth.ts         useAuth(): вход при запуске; useSessionExpiry(): тихий повторный вход при 401
+    owner.ts           тип Owner, useOwner() (GET /api/me), saveTheme()
+    useThemeSync.ts    тема владельца → <html data-theme> и цвета шапки Telegram
     session.ts         хранение токена между запусками
     telegram.ts        SDK: загрузка, ready/expand, цвета шапки, closeTelegramApp()
     query.tsx          QueryProvider: React Query + сохранение кеша на устройстве
     format.ts          money, суммы, даты (today, monthLabel, occurrenceForDay)
+  vite/mini-app-config.ts  общий конфиг Vite: алиас @ui, preload SDK Telegram, прокси /api
+  tsconfig.app.json   общий tsconfig фронтендов (алиас @ui)
 
 apps/web/src/          кошелёк
   main.tsx             configurePlatform({ appId: "wallet" }), стили, QueryProvider (CACHE_VERSION)
@@ -120,9 +132,35 @@ apps/web/src/          кошелёк
   components/          IconSelect, CategoryIcon, OperationRow
   panels/              содержимое шторок: AccountsPanel, CategoriesPanel, BudgetPanel, EntryPanel, OperationPanel
   pages/               вкладки: HomePage, HistoryPage, ReportsPage, MorePage (+ useExpenseDraft)
+
+apps/nutrition-web/src/   питание
+  main.tsx             configurePlatform({ appId: "nutrition" }), синяя тема
+  App.tsx              вход, профиль; без профиля — онбординг, с профилем — вкладки
+  api.ts               типы и запросы профиля
+  components/          AddMealFlow, MealReview, MealCard, BodyFields, CalorieRing, MacroCards, PlanSummary, TargetsPanel
+  pages/               Onboarding, TodayPage, HistoryPage, ProfilePage
+  lib/                 labels (подписи), image (сжатие фото), meal-names (названия по времени)
+
+docker/
+  mini-app.Dockerfile      сборка любого фронтенда: --build-arg APP=<папка в apps/>
+  mini-app.nginx.conf      nginx: статика, кеширование, gzip, прокси /api
 ```
 
-**Подключение `@ui`:** `paths` и `include` в `apps/<app>/tsconfig.json`, `resolve.alias` в `vite.config.ts`, `COPY packages ./packages` в Dockerfile. Пример — `apps/web`.
+**Подключение `@ui`:** приложению достаточно двух коротких файлов:
+
+- `vite.config.ts` вызывает `miniAppViteConfig(new URL(".", import.meta.url), { port, allowedHosts })`;
+- `tsconfig.json` расширяет `packages/ui/tsconfig.app.json` и задаёт `include`.
+
+Образ собирается общим `docker/mini-app.Dockerfile` с `APP=<папка>`. Пример — `apps/nutrition-web`.
+
+**Оболочка приложения** собирается из общих частей:
+
+- `useAuth()` и `useSessionExpiry()` — вход;
+- `useOwner()` и `useThemeSync()` — тема;
+- `CenterState` — экраны загрузки и ошибок;
+- `AppShell` — шапка, навигация и содержимое.
+
+`App.tsx` приложения содержит только свои запросы и вкладки.
 
 **Порядок стилей** в `main.tsx`: тема, затем `base.css`, затем `styles.css` приложения. Стили приложения идут последними и могут уточнять общие.
 
@@ -281,17 +319,16 @@ SDK загружается асинхронно, `<link rel="preload">` доба
    - Контроллеры с префиксом `nutrition/...`.
    - Подключить `NutritionModule` в `app.module.ts`.
    - Описать таблицы в `apps/api/prisma/schema.prisma`, связать их с `Owner` и создать миграцию.
-2. **Фронтенд** (`apps/nutrition-web/`).
-   - Скопировать из `apps/web`: `index.html`, `vite.config.ts` (другой порт), `tsconfig.json`, `Dockerfile`, `nginx.conf`, `src/main.tsx`, `src/App.tsx`.
-   - В `main.tsx` указать `configurePlatform({ appId: "nutrition" })` и тему `@ui/styles/themes/blue.css`.
-   - В `App.tsx` оставить вход, оболочку и навигацию, а вкладки, название и иконку в шапке заменить.
-   - Обновить `theme-color` в `index.html`.
-   - Специфичные стили — в `src/styles.css` приложения.
+2. **Фронтенд** (`apps/<app>-web/`). Образец — `apps/nutrition-web`.
+   - `index.html` (свой `theme-color` и заголовок), `vite.config.ts` (свой порт и домены), `tsconfig.json` — по образцу, это несколько строк.
+   - `src/main.tsx`: `configurePlatform({ appId: "<app>" })` и тема `@ui/styles/themes/<цвет>.css`.
+   - `src/App.tsx`: `useAuth`, `useOwner`, `useThemeSync`, `CenterState`, `AppShell` со своими вкладками, названием и иконкой.
+   - Специфичные стили — в `src/styles.css` приложения. То, что пригодится другим приложениям, — сразу в `packages/ui`.
 3. **Инфраструктура.**
-   - Добавить сервис `nutrition-web` в `docker-compose.yml` по образцу `web`: свой порт, `dockerfile: apps/nutrition-web/Dockerfile` и `VITE_API_BASE_URL`.
-   - Добавить домен приложения в `ALLOWED_ORIGINS`.
-   - Добавить скрипты `dev:nutrition` и сборку в `package.json`.
-4. **Бот.** Добавить кнопку в ответ на `/start` в `apps/api/src/telegram/telegram-bot.service.ts`. Можно несколько строк `inline_keyboard`, у каждой свой `web_app.url`. Для удобства URL приложений стоит вынести в конфиг.
+   - Сервис в `docker-compose.yml` по образцу `nutrition-web`: `dockerfile: docker/mini-app.Dockerfile`, `APP: <app>-web`, свой порт.
+   - Домен приложения в `ALLOWED_ORIGINS`.
+   - Скрипты `dev:<app>` и `build:<app>` в `package.json`, добавить приложение в `dev` и `build`.
+4. **Бот.** URL приложения в конфиг (`<APP>_APP_URL` в `app-config.ts`, по образцу `NUTRITION_APP_URL`) и строка в `appButtons()` в `apps/api/src/telegram/telegram-bot.service.ts`. Кнопка появляется, только если URL задан.
 
 ---
 
@@ -305,14 +342,14 @@ SDK загружается асинхронно, `<link rel="preload">` доба
 
 ## 6. Окружение и команды
 
-| Команда                                   | Что делает               |
-| ----------------------------------------- | ------------------------ |
-| `npm run dev`                             | API (3001) + Vite (5173) |
-| `npm run dev:api`, `npm run dev:web`      | по отдельности           |
-| `npm run build`                           | собрать всё              |
-| `npm test`, `npm run test:integration`    | тесты                    |
-| `npm run db:migrate`, `npm run db:studio` | миграции и просмотр БД   |
-| `npm run format`                          | Prettier                 |
-| `docker compose up --build -d`            | api + web в Docker       |
+| Команда                                       | Что делает                                   |
+| --------------------------------------------- | -------------------------------------------- |
+| `npm run dev`                                 | API (3001) + кошелёк (5173) + питание (5174) |
+| `npm run dev:api`, `dev:web`, `dev:nutrition` | по отдельности                               |
+| `npm run build`                               | собрать всё (`build:web`, `build:nutrition`) |
+| `npm test`, `npm run test:integration`        | тесты                                        |
+| `npm run db:migrate`, `npm run db:studio`     | миграции и просмотр БД                       |
+| `npm run format`                              | Prettier                                     |
+| `docker compose up --build -d`                | api + web + nutrition-web в Docker           |
 
 Переменные окружения описаны с комментариями в `.env.example`.

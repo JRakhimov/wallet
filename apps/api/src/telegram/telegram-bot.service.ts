@@ -24,7 +24,7 @@ type Update = {
 const POLL_TIMEOUT_SECONDS = 30;
 const RETRY_DELAY_MS = 5000;
 const START_COMMAND = /^\/start(?:@[A-Za-z0-9_]+)?(?:\s|$)/;
-const WELCOME_TEXT = "Ваш личный кошелёк. Записывайте расходы и следите за бюджетом.";
+const WELCOME_TEXT = "Ваши личные приложения. Выберите, что открыть.";
 
 /** Long-polls Telegram and answers the owner's /start with a Mini App button. */
 @Injectable()
@@ -69,17 +69,22 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
       await this.call("sendMessage", {
         chat_id: message.chat.id,
         text: WELCOME_TEXT,
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: "Открыть кошелёк", web_app: { url: this.config.miniAppUrl } }],
-          ],
-        },
+        reply_markup: { inline_keyboard: this.appButtons() },
       });
     } catch (error) {
       // Let the next poll retry this update.
       await this.db.botUpdate.delete({ where: { updateId } });
       throw error;
     }
+  }
+
+  /** One button per deployed mini app, each on its own row. */
+  private appButtons() {
+    const apps = [
+      { text: "💳 Кошелёк", url: this.config.miniAppUrl },
+      { text: "🥗 Питание", url: this.config.nutritionAppUrl },
+    ];
+    return apps.filter((app) => app.url).map(({ text, url }) => [{ text, web_app: { url } }]);
   }
 
   private async poll() {

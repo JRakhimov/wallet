@@ -1,0 +1,17 @@
+{
+  "//": "Base TypeScript config of every mini app frontend; apps extend it and set `include`.",
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
+    "experimentalDecorators": false,
+    "emitDecoratorMetadata": false,
+    "paths": {
+      "@ui/*": ["./*"]
+    }
+  }
+}
