@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { request } from "../api";
-import { monthLabel, normalizeAmount } from "../lib/format";
-import { AmountInput } from "../components/AmountInput";
+import { request } from "@ui/lib/api-client";
+import { monthLabel, normalizeAmount } from "@ui/lib/format";
+import { AmountInput } from "@ui/components/AmountInput";
 
 export function BudgetPanel({
   month,

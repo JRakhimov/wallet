@@ -1,10 +1,11 @@
 import { useRef, useState } from "react";
 import { DateTime } from "luxon";
-import { Account, Category, Operation, OperationInput, request } from "../api";
-import { SelectField } from "../components/SelectField";
+import { Account, Category, Operation, OperationInput } from "../api";
+import { request } from "@ui/lib/api-client";
+import { SelectField } from "@ui/components/SelectField";
 import { accountChoices, categoryChoices } from "../lib/choices";
-import { money, normalizeAmount, occurrenceForDay, today } from "../lib/format";
-import { AmountInput } from "../components/AmountInput";
+import { money, normalizeAmount, occurrenceForDay, today } from "@ui/lib/format";
+import { AmountInput } from "@ui/components/AmountInput";
 
 export function OperationPanel({
   operation,

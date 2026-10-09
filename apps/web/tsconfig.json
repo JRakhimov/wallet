@@ -8,7 +8,10 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["vite/client"],
     "experimentalDecorators": false,
-    "emitDecoratorMetadata": false
+    "emitDecoratorMetadata": false,
+    "paths": {
+      "@ui/*": ["../../packages/ui/*"]
+    }
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "vite.config.ts", "../../packages/ui"]
 }

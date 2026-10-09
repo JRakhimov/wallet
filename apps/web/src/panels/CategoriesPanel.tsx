@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { Star } from "lucide-react";
-import { Category, request } from "../api";
+import { Category } from "../api";
+import { request } from "@ui/lib/api-client";
 import { CategoryIcon } from "../components/CategoryIcon";
 import { IconSelect } from "../components/IconSelect";
-import { SelectField } from "../components/SelectField";
+import { SelectField } from "@ui/components/SelectField";
 import { categoryKindChoices } from "../lib/choices";
 
 export function CategoriesPanel({

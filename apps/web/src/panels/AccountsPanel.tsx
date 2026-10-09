@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { CreditCard } from "lucide-react";
-import { Account, request } from "../api";
-import { SelectField } from "../components/SelectField";
+import { Account } from "../api";
+import { request } from "@ui/lib/api-client";
+import { SelectField } from "@ui/components/SelectField";
 import { accountKindChoices } from "../lib/choices";
-import { money, normalizeAmount } from "../lib/format";
-import { AmountInput } from "../components/AmountInput";
+import { money, normalizeAmount } from "@ui/lib/format";
+import { AmountInput } from "@ui/components/AmountInput";
 
 export function AccountsPanel({
   accounts,

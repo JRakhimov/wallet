@@ -6,6 +6,7 @@ COPY package*.json ./
 RUN npm ci
 
 COPY tsconfig.json ./
+COPY packages ./packages
 COPY apps/web ./apps/web
 
 ARG VITE_API_BASE_URL

@@ -2,11 +2,12 @@ import "dotenv/config";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
-import { AccountsService } from "../src/accounts/accounts.service";
-import { OperationsService } from "../src/operations/operations.service";
+import { AccountsService } from "../src/wallet/accounts/accounts.service";
+import { OperationsService } from "../src/wallet/operations/operations.service";
+import { OwnerSetupRegistry } from "../src/owner/owner-setup.registry";
 import { OwnerService } from "../src/owner/owner.service";
 import { PrismaService } from "../src/prisma/prisma.service";
-import { ReportsService } from "../src/reports/reports.service";
+import { ReportsService } from "../src/wallet/reports/reports.service";
 
 test(
   "a real PostgreSQL ledger keeps transfers, refunds and retries consistent",
@@ -15,7 +16,7 @@ test(
     const db = new PrismaService();
     await db.$connect();
     const owner = await db.owner.create({ data: { telegramId: BigInt(Date.now()) } });
-    const operations = new OperationsService(db, new OwnerService(db));
+    const operations = new OperationsService(db, new OwnerService(db, new OwnerSetupRegistry()));
     const reports = new ReportsService(db, operations);
     const accountsService = new AccountsService(db);
     try {

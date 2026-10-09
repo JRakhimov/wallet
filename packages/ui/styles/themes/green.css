@@ -1,0 +1,57 @@
+/*
+ * Green theme (wallet). A theme defines only color tokens; every component reads them.
+ * Neutral colors are tinted with the accent hue. See docs/PLATFORM.md, section 3.2.
+ */
+:root {
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  color-scheme: light;
+  --bg: #f6f7f4;
+  --surface: #ffffff;
+  --surface-soft: #eef3ed;
+  --text: #203029;
+  --muted: #6d7d70;
+  --border: #e3e9e1;
+  --accent: #286c4d;
+  --accent-soft: #e3f0e6;
+  --accent-on: #fff;
+  --danger: #b4413b;
+  --scrim: #060b0870;
+  --shadow: 0 16px 60px #182b2117;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #151d18;
+  --surface: #222d25;
+  --surface-soft: #2a3a2e;
+  --text: #eef5ed;
+  --muted: #abbab0;
+  --border: #3b4a3f;
+  --accent: #a8d9bb;
+  --accent-soft: #304d3a;
+  --accent-on: #203629;
+  --danger: #ffaaa2;
+  --scrim: #060b0870;
+  --shadow: 0 18px 55px #080e0a50;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #151d18;
+    --surface: #222d25;
+    --surface-soft: #2a3a2e;
+    --text: #eef5ed;
+    --muted: #abbab0;
+    --border: #3b4a3f;
+    --accent: #a8d9bb;
+    --accent-soft: #304d3a;
+    --accent-on: #203629;
+    --danger: #ffaaa2;
+    --scrim: #060b0870;
+    --shadow: 0 18px 55px #080e0a50;
+  }
+}

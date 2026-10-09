@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Plus, X } from "lucide-react";
 import { DateTime } from "luxon";
-import { Account, Category, Operation, request } from "../api";
-import { MonthSwitch } from "../components/MonthSwitch";
+import { Account, Category, Operation } from "../api";
+import { request } from "@ui/lib/api-client";
+import { MonthSwitch } from "@ui/components/MonthSwitch";
 import { OperationRow } from "../components/OperationRow";
-import { Sheet, SheetPresence } from "../components/Sheet";
-import { currentMonth, money } from "../lib/format";
+import { Sheet, SheetPresence } from "@ui/components/Sheet";
+import { currentMonth, money } from "@ui/lib/format";
 import { useRefresh } from "../lib/useRefresh";
 import { OperationPanel } from "../panels/OperationPanel";
 

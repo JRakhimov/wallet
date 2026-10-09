@@ -1,8 +1,8 @@
 import { DateTime } from "luxon";
 import { Summary } from "../api";
 import { CategoryIcon } from "../components/CategoryIcon";
-import { MonthSwitch } from "../components/MonthSwitch";
-import { currentMonth, money, monthLabel } from "../lib/format";
+import { MonthSwitch } from "@ui/components/MonthSwitch";
+import { currentMonth, money, monthLabel } from "@ui/lib/format";
 
 export function ReportsPage({
   month,

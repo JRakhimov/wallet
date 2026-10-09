@@ -13,11 +13,12 @@ import {
   Shapes,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { Account, Category, downloadCsv, Operation, Owner, request, Summary } from "../api";
+import { Account, Category, downloadCsv, Operation, Owner, Summary } from "../api";
+import { request } from "@ui/lib/api-client";
 import { OperationRow } from "../components/OperationRow";
-import { Sheet, SheetPresence } from "../components/Sheet";
-import { monthLabel } from "../lib/format";
-import { closeTelegramApp, openedInTelegram } from "../lib/telegram";
+import { Sheet, SheetPresence } from "@ui/components/Sheet";
+import { monthLabel } from "@ui/lib/format";
+import { closeTelegramApp, openedInTelegram } from "@ui/lib/telegram";
 import { useRefresh } from "../lib/useRefresh";
 import { AccountsPanel } from "../panels/AccountsPanel";
 import { BudgetPanel } from "../panels/BudgetPanel";

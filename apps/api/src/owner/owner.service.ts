@@ -1,11 +1,15 @@
 import { Injectable } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
-import { defaultAccount, defaultCategories } from "./default-owner-data";
 import { UpdateSettingsDto } from "./dto/update-settings.dto";
+import { OwnerSetupRegistry } from "./owner-setup.registry";
 
 @Injectable()
 export class OwnerService {
-  constructor(private readonly db: PrismaService) {}
+  constructor(
+    private readonly db: PrismaService,
+    private readonly setups: OwnerSetupRegistry,
+  ) {}
 
   async getProfile(ownerId: string) {
     const owner = await this.db.owner.findUniqueOrThrow({ where: { id: ownerId } });
@@ -27,16 +31,24 @@ export class OwnerService {
     return this.getProfile(ownerId);
   }
 
-  /** Returns the owner, creating it with starter data on first login. */
-  ensureOwner(telegramId: bigint) {
-    return this.db.owner.upsert({
-      where: { telegramId },
-      update: {},
-      create: {
-        telegramId,
-        accounts: { create: defaultAccount },
-        categories: { create: defaultCategories },
-      },
-    });
+  /** Returns the owner, creating it with every app's starter data on first login. */
+  async ensureOwner(telegramId: bigint) {
+    const existing = await this.db.owner.findUnique({ where: { telegramId } });
+    if (existing) {
+      return existing;
+    }
+    try {
+      return await this.db.$transaction(async (tx) => {
+        const owner = await tx.owner.create({ data: { telegramId } });
+        await this.setups.runAll(tx, owner.id);
+        return owner;
+      });
+    } catch (error) {
+      // Two first logins at once: the other request created the owner.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        return this.db.owner.findUniqueOrThrow({ where: { telegramId } });
+      }
+      throw error;
+    }
   }
 }

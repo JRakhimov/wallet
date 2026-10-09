@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
-import { Account, Category, OperationInput, request } from "../api";
-import { SelectField } from "../components/SelectField";
+import { Account, Category, OperationInput } from "../api";
+import { request } from "@ui/lib/api-client";
+import { SelectField } from "@ui/components/SelectField";
 import { accountChoices, categoryChoices } from "../lib/choices";
 import {
   centsToAmount,
@@ -9,8 +10,8 @@ import {
   occurrenceForDay,
   parseCents,
   today,
-} from "../lib/format";
-import { AmountInput } from "../components/AmountInput";
+} from "@ui/lib/format";
+import { AmountInput } from "@ui/components/AmountInput";
 
 export function EntryPanel({
   type,

@@ -1,16 +1,10 @@
 import { ArrowDownLeft, ArrowUpRight, CreditCard, PiggyBank, Wallet } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import { Account, Category } from "../api";
 import { categoryIcon } from "./category-icons";
-import { money } from "./format";
+import { SelectChoice } from "@ui/components/SelectField";
+import { money } from "@ui/lib/format";
 
 export const icon = (name: string) => categoryIcon(name).Icon;
-export type SelectChoice = {
-  value: string;
-  label: string;
-  detail?: string;
-  Icon?: LucideIcon;
-};
 export const accountChoices = (accounts: Account[]): SelectChoice[] =>
   accounts.map((account) => ({
     value: account.id,

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { OperationInput } from "../api";
-import { today } from "../lib/format";
+import { today } from "@ui/lib/format";
 
 // Lives in App so an unsaved expense survives switching tabs.
 export function useExpenseDraft() {

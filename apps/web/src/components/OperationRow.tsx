@@ -1,7 +1,7 @@
 import { ArrowDownLeft, ArrowRightLeft, ArrowUpRight, Settings2 } from "lucide-react";
 import { DateTime } from "luxon";
 import { Operation } from "../api";
-import { money } from "../lib/format";
+import { money } from "@ui/lib/format";
 
 export function OperationRow({
   op,

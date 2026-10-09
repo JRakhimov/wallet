@@ -8,6 +8,10 @@ const TELEGRAM_SDK_URL = "https://telegram.org/js/telegram-web-app.js";
 
 export default defineConfig(({ mode }) => ({
   root: fileURLToPath(new URL(".", import.meta.url)),
+  resolve: {
+    // Shared code of all mini apps: components, styles, themes, Telegram and API client.
+    alias: { "@ui": fileURLToPath(new URL("../../packages/ui", import.meta.url)) },
+  },
   plugins: [
     react(),
     {
