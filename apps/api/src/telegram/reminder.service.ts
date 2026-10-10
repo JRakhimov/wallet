@@ -7,6 +7,7 @@ import {
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { DateTime } from "luxon";
+import { AccessService } from "../access/access.service";
 import { AppConfig, CONFIG } from "../config/app-config";
 import { PrismaService } from "../prisma/prisma.service";
 import { DayState, DINNER_FROM_HOUR, dueReminders, ReminderKind, reminderFor } from "./reminders";
@@ -15,8 +16,8 @@ import { TelegramBotService } from "./telegram-bot.service";
 const TICK_MS = 60_000;
 
 /**
- * Reminds the owner, with sound, to log meals and expenses: a check at 14:00 and at 20:00 in
- * the owner's timezone. Each check runs once per day, also across restarts.
+ * Reminds every user with access, with sound, to log meals and expenses: a check at 14:00 and
+ * at 20:00 in the user's timezone. Each check runs once per day, also across restarts.
  */
 @Injectable()
 export class ReminderService implements OnApplicationBootstrap, OnModuleDestroy {
@@ -28,10 +29,11 @@ export class ReminderService implements OnApplicationBootstrap, OnModuleDestroy 
     private readonly db: PrismaService,
     private readonly bot: TelegramBotService,
     @Inject(CONFIG) private readonly config: AppConfig,
+    private readonly access: AccessService,
   ) {}
 
   onApplicationBootstrap() {
-    // Same rule as the bot: a local dev API must not message the real owner.
+    // Same rule as the bot: a local dev API must not message real users.
     if (this.config.dev && !this.config.botInDev) {
       return;
     }
@@ -50,16 +52,12 @@ export class ReminderService implements OnApplicationBootstrap, OnModuleDestroy 
     }
     this.running = true;
     try {
-      const owner = await this.db.owner.findUnique({
-        where: { telegramId: this.config.ownerTelegramId },
+      const owners = await this.db.owner.findMany({
+        where: { telegramId: { in: await this.access.allowedIds() } },
         include: { nutritionProfile: { select: { ownerId: true } } },
       });
-      if (!owner) {
-        return;
-      }
-      const local = now.setZone(owner.timezone);
-      for (const kind of dueReminders(local)) {
-        await this.check(kind, owner.id, Boolean(owner.nutritionProfile), local);
+      for (const owner of owners) {
+        await this.remind(owner, now);
       }
     } catch {
       this.logger.warn("Reminder check failed");
@@ -68,29 +66,58 @@ export class ReminderService implements OnApplicationBootstrap, OnModuleDestroy 
     }
   }
 
-  private async check(kind: ReminderKind, ownerId: string, tracksMeals: boolean, local: DateTime) {
+  /** Runs this owner's due checks. One owner failing does not stop the others. */
+  private async remind(
+    owner: { id: string; telegramId: bigint; timezone: string; nutritionProfile: object | null },
+    now: DateTime,
+  ) {
+    try {
+      const local = now.setZone(owner.timezone);
+      for (const kind of dueReminders(local)) {
+        await this.check(kind, owner, local);
+      }
+    } catch {
+      this.logger.warn("Reminder check failed");
+    }
+  }
+
+  private async check(
+    kind: ReminderKind,
+    owner: { id: string; telegramId: bigint; nutritionProfile: object | null },
+    local: DateTime,
+  ) {
     const date = local.toISODate()!;
-    if (!(await this.claim(kind, date))) {
+    const key = { ownerId: owner.id, kind, date };
+    if (!(await this.claim(key))) {
       return;
     }
-    const reminder = reminderFor(kind, await this.dayState(ownerId, tracksMeals, local));
+    const reminder = reminderFor(
+      kind,
+      await this.dayState(owner.id, Boolean(owner.nutritionProfile), local),
+    );
     if (!reminder) {
       return;
     }
     try {
-      await this.bot.sendToOwner(reminder.text, { silent: false, apps: reminder.apps });
-      await this.db.reminder.update({ where: { kind_date: { kind, date } }, data: { sent: true } });
+      await this.bot.sendTo(owner.telegramId, reminder.text, {
+        silent: false,
+        apps: reminder.apps,
+      });
+      await this.db.reminder.update({
+        where: { ownerId_kind_date: key },
+        data: { sent: true },
+      });
     } catch {
       // Let the next tick try again within the grace period.
-      await this.db.reminder.delete({ where: { kind_date: { kind, date } } });
+      await this.db.reminder.delete({ where: { ownerId_kind_date: key } });
       this.logger.warn(`Could not send the ${kind} reminder`);
     }
   }
 
   /** Returns false when this check already ran today. */
-  private async claim(kind: ReminderKind, date: string) {
+  private async claim(key: { ownerId: string; kind: ReminderKind; date: string }) {
     try {
-      await this.db.reminder.create({ data: { kind, date } });
+      await this.db.reminder.create({ data: key });
       return true;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {

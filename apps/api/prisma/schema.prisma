@@ -20,6 +20,7 @@ model Owner {
   sessions   Session[]
   budgets    Budget[]
   nutritionProfile NutritionProfile?
+  reminders        Reminder[]
   meals            Meal[]
   mealPhotos       MealPhoto[]
   workouts         Workout[]
@@ -112,14 +113,22 @@ model BotUpdate {
   processedAt DateTime @default(now())
 }
 
-// A reminder already checked for a day, so it is sent at most once even after restarts.
+// Telegram users the administrator (OWNER_TELEGRAM_ID) let in with /access.
+model AccessGrant {
+  telegramId BigInt   @id
+  grantedAt  DateTime @default(now())
+}
+
+// A reminder already checked for a day, so it is sent at most once per owner even after restarts.
 model Reminder {
+  ownerId   String   @db.Uuid
+  owner     Owner    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   kind      String   // lunch | evening
   date      String   // yyyy-MM-dd in the owner's timezone
   sent      Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  @@id([kind, date])
+  @@id([ownerId, kind, date])
 }
 
 // ---------------------------------------------------------------------------

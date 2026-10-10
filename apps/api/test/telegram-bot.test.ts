@@ -1,8 +1,9 @@
 import "reflect-metadata";
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import { Prisma } from "@prisma/client";
 import { readConfig } from "../src/config/app-config";
+import { AccessService } from "../src/access/access.service";
 import { PrismaService } from "../src/prisma/prisma.service";
 import { TelegramBotService } from "../src/telegram/telegram-bot.service";
 import { VoiceError, VoiceTransactionService } from "../src/voice/voice-transaction.service";
@@ -20,6 +21,20 @@ const update = {
   message: { text: "/start", from: { id: 123 }, chat: { id: 123, type: "private" } },
 };
 const noVoice = { enabled: false } as unknown as VoiceTransactionService;
+const ADMIN_ID = 123n;
+/** In-memory stand-in for AccessService: 123 is the administrator, `granted` holds the rest. */
+function accessControl(granted: bigint[] = []) {
+  const list = new Set(granted);
+  return {
+    list,
+    isAdmin: (id: bigint) => id === ADMIN_ID,
+    isAllowed: async (id: bigint) => id === ADMIN_ID || list.has(id),
+    allowedIds: async () => [ADMIN_ID, ...list],
+    grant: async (id: bigint) => !list.has(id) && Boolean(list.add(id)),
+    revoke: async (id: bigint) => list.delete(id),
+  };
+}
+const access = accessControl() as unknown as AccessService;
 function database() {
   const ids = new Set<bigint>();
   return {
@@ -60,7 +75,7 @@ test("polling deletes webhook, acknowledges processed updates and aborts on shut
     }
     return Response.json({ ok: true, result: method === "getUpdates" ? [update] : true });
   });
-  const bot = new TelegramBotService(db as unknown as PrismaService, config, noVoice);
+  const bot = new TelegramBotService(db as unknown as PrismaService, config, noVoice, access);
   try {
     await bot.onApplicationBootstrap();
     await blocked;
@@ -84,7 +99,7 @@ test("only owner /start is answered; duplicates are ignored and failed sends can
     sends++;
     return Response.json({ ok: !fail, result: true });
   });
-  const bot = new TelegramBotService(db as unknown as PrismaService, config, noVoice);
+  const bot = new TelegramBotService(db as unknown as PrismaService, config, noVoice, access);
   await bot.handleUpdate({ ...update, message: { ...update.message, from: { id: 999 } } });
   await bot.handleUpdate({
     ...update,
@@ -108,6 +123,7 @@ test("local development does not start the Telegram bot", async (t) => {
     database() as unknown as PrismaService,
     { ...config, dev: true },
     noVoice,
+    access,
   );
   await bot.onApplicationBootstrap();
   await bot.onModuleDestroy();
@@ -125,12 +141,14 @@ test("/start shows a button for every deployed mini app", async (t) => {
     database() as unknown as PrismaService,
     config,
     noVoice,
+    access,
   ).handleUpdate(update);
   const withNutrition = { ...config, nutritionAppUrl: "https://nutrition.example" };
   await new TelegramBotService(
     database() as unknown as PrismaService,
     withNutrition,
     noVoice,
+    access,
   ).handleUpdate(update);
 
   assert.deepEqual(keyboards, [
@@ -194,7 +212,7 @@ test("a voice message is acknowledged, recorded once and the result is sent back
       return "Расход 45 000 сум за обед записан";
     },
   } as unknown as VoiceTransactionService;
-  const bot = new TelegramBotService(database() as unknown as PrismaService, config, voice);
+  const bot = new TelegramBotService(database() as unknown as PrismaService, config, voice, access);
 
   await bot.handleUpdate(voiceUpdate);
   await bot.handleUpdate(voiceUpdate);
@@ -217,7 +235,7 @@ test("voice failures are reported in the chat; strangers and long recordings are
       throw new VoiceError("Не понял");
     },
   } as unknown as VoiceTransactionService;
-  const bot = new TelegramBotService(database() as unknown as PrismaService, config, voice);
+  const bot = new TelegramBotService(database() as unknown as PrismaService, config, voice, access);
 
   await bot.handleUpdate(voiceUpdate);
   // The status turns into "failed", and the reason arrives as a separate message with sound.
@@ -244,7 +262,82 @@ test("voice failures are reported in the chat; strangers and long recordings are
 
 test("voice commands report that they are not configured", async (t) => {
   const { sent } = mockTelegram(t);
-  const bot = new TelegramBotService(database() as unknown as PrismaService, config, noVoice);
+  const bot = new TelegramBotService(
+    database() as unknown as PrismaService,
+    config,
+    noVoice,
+    access,
+  );
   await bot.handleUpdate(voiceUpdate);
   assert.deepEqual(sent, ["Голосовые команды не настроены на сервере.\nОперация не записана."]);
+});
+
+function accessFixture(t: TestContext) {
+  const sent: { chat: number; text: string }[] = [];
+  t.mock.method(globalThis, "fetch", async (_url: string, options: RequestInit) => {
+    const body = JSON.parse(String(options.body));
+    sent.push({ chat: body.chat_id, text: body.text });
+    return Response.json({ ok: true, result: { message_id: 1 } });
+  });
+  const control = accessControl();
+  const bot = new TelegramBotService(
+    database() as unknown as PrismaService,
+    config,
+    noVoice,
+    control as unknown as AccessService,
+  );
+  let updateId = 100;
+  const say = (from: number, text: string) =>
+    bot.handleUpdate({
+      update_id: updateId++,
+      message: { text, from: { id: from }, chat: { id: from, type: "private" } },
+    });
+  return { sent, control, say };
+}
+
+test("the administrator grants and revokes access with commands", async (t) => {
+  const { sent, control, say } = accessFixture(t);
+
+  await say(123, "/access");
+  await say(123, "/access 555");
+  await say(123, "/access 555");
+  await say(123, "/access abc");
+  assert.deepEqual(
+    sent.map((m) => m.text),
+    [
+      "Доступ пока никому не выдан. Чтобы открыть: /access 123456789",
+      "Доступ выдан: 555",
+      "Вам открыт доступ. Нажмите /start, чтобы начать.",
+      "У 555 уже есть доступ",
+      "Укажите Telegram id числом, например: /access 123456789",
+    ],
+  );
+  assert.equal(sent[2].chat, 555);
+  assert.ok(control.list.has(555n));
+
+  sent.length = 0;
+  await say(123, "/access");
+  await say(123, "/revoke 555");
+  await say(123, "/revoke 123");
+  assert.deepEqual(
+    sent.map((m) => m.text),
+    ["Доступ есть у:\n555", "Доступ отозван: 555", "Свой доступ отозвать нельзя"],
+  );
+  assert.equal(control.list.size, 0);
+});
+
+test("strangers get no reply, and access commands work only for the administrator", async (t) => {
+  const { sent, control, say } = accessFixture(t);
+  control.list.add(555n);
+
+  await say(999, "/start");
+  await say(999, "/access 999");
+  await say(555, "/access 999");
+  await say(555, "/revoke 555");
+  assert.equal(sent.length, 0);
+  assert.deepEqual([...control.list], [555n]);
+
+  await say(555, "/start");
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].chat, 555);
 });

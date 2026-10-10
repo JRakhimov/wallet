@@ -7,6 +7,7 @@ import {
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { setTimeout as delay } from "node:timers/promises";
+import { AccessService } from "../access/access.service";
 import { AppConfig, CONFIG } from "../config/app-config";
 import { PrismaService } from "../prisma/prisma.service";
 import { VoiceError, VoiceTransactionService } from "../voice/voice-transaction.service";
@@ -32,7 +33,13 @@ type Update = {
 const POLL_TIMEOUT_SECONDS = 30;
 const RETRY_DELAY_MS = 5000;
 const START_COMMAND = /^\/start(?:@[A-Za-z0-9_]+)?(?:\s|$)/;
+const ACCESS_COMMAND = /^\/(access|revoke)(?:@[A-Za-z0-9_]+)?(?:\s+(\S+))?\s*$/;
+const TELEGRAM_ID = /^[1-9]\d{0,15}$/;
 const WELCOME_TEXT = "Ваши личные приложения. Выберите, что открыть.";
+const ACCESS_USAGE_TEXT = "Укажите Telegram id числом, например: /access 123456789";
+const REVOKE_USAGE_TEXT = "Укажите Telegram id числом, например: /revoke 123456789";
+const ACCESS_NONE_TEXT = "Доступ пока никому не выдан. Чтобы открыть: /access 123456789";
+const ACCESS_GRANTED_TEXT = "Вам открыт доступ. Нажмите /start, чтобы начать.";
 const VOICE_ACCEPTED_TEXT = "Принято в обработку…";
 const VOICE_RECOGNIZING_TEXT = "Распознаём голос…";
 const VOICE_PARSING_TEXT = "Определяем сумму и категорию…";
@@ -45,8 +52,9 @@ const MAX_VOICE_BYTES = 5 * 1024 * 1024;
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 
 /**
- * Long-polls Telegram. The owner's /start gets Mini App buttons; a voice message is turned
- * into a wallet operation (see VoiceTransactionService).
+ * Long-polls Telegram. People with access get Mini App buttons on /start, and a voice message
+ * is turned into a wallet operation (see VoiceTransactionService). The administrator also
+ * manages access with /access and /revoke. Everyone else gets no reply at all.
  */
 @Injectable()
 export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestroy {
@@ -58,6 +66,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
     private readonly db: PrismaService,
     @Inject(CONFIG) private readonly config: AppConfig,
     private readonly voice: VoiceTransactionService,
+    private readonly access: AccessService,
   ) {}
 
   async onApplicationBootstrap() {
@@ -77,12 +86,19 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
   /** Handles one update. Each update is answered at most once, even after restarts. */
   async handleUpdate(update: Update) {
     const message = update.message;
-    if (!message || !this.isOwnerPrivateChat(message)) {
+    if (!message || !this.isPrivateChat(message)) {
       return;
     }
     const isStart = START_COMMAND.test(message.text || "");
+    const accessCommand = ACCESS_COMMAND.exec(message.text || "");
     const speech = message.voice ?? message.audio;
-    if (!isStart && !speech) {
+    if (!isStart && !accessCommand && !speech) {
+      return;
+    }
+    const sender = BigInt(message.from!.id);
+    const isAdmin = this.access.isAdmin(sender);
+    // Strangers, and anyone but the administrator sending /access, get no answer at all.
+    if ((accessCommand && !isAdmin) || !(await this.access.isAllowed(sender))) {
       return;
     }
 
@@ -92,6 +108,10 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
       return;
     }
 
+    if (accessCommand) {
+      await this.handleAccessCommand(message.chat.id, accessCommand[1], accessCommand[2]);
+      return;
+    }
     if (speech) {
       // Not retried after a failure: the operation may already be written.
       await this.handleSpeech(message, speech, update.update_id);
@@ -110,6 +130,52 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
       await this.db.botUpdate.delete({ where: { updateId } });
       throw error;
     }
+  }
+
+  /** /access lists, grants and /revoke takes away a user's access. Only the administrator gets here. */
+  private async handleAccessCommand(chatId: number, command: string, argument?: string) {
+    if (!argument) {
+      await this.send(
+        chatId,
+        command === "access" ? await this.accessList() : REVOKE_USAGE_TEXT,
+        true,
+      );
+      return;
+    }
+    if (!TELEGRAM_ID.test(argument)) {
+      await this.send(chatId, command === "access" ? ACCESS_USAGE_TEXT : REVOKE_USAGE_TEXT, true);
+      return;
+    }
+
+    const telegramId = BigInt(argument);
+    if (command === "access") {
+      const granted = await this.access.grant(telegramId);
+      await this.send(
+        chatId,
+        granted ? `Доступ выдан: ${argument}` : `У ${argument} уже есть доступ`,
+        true,
+      );
+      if (granted) {
+        // Works only if they have already opened the bot; otherwise Telegram refuses.
+        await this.send(Number(telegramId), ACCESS_GRANTED_TEXT, false);
+      }
+      return;
+    }
+    if (this.access.isAdmin(telegramId)) {
+      await this.send(chatId, "Свой доступ отозвать нельзя", true);
+      return;
+    }
+    const revoked = await this.access.revoke(telegramId);
+    await this.send(
+      chatId,
+      revoked ? `Доступ отозван: ${argument}` : `У ${argument} нет доступа`,
+      true,
+    );
+  }
+
+  private async accessList() {
+    const granted = (await this.access.allowedIds()).slice(1);
+    return granted.length ? `Доступ есть у:\n${granted.join("\n")}` : ACCESS_NONE_TEXT;
   }
 
   /**
@@ -210,10 +276,10 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
     }
   }
 
-  /** Sends a message to the owner's private chat (its id is the owner's Telegram id). */
-  async sendToOwner(text: string, options: { silent: boolean; apps?: MiniApp[] }) {
+  /** Sends a message to a user's private chat (its id is the user's Telegram id). */
+  async sendTo(telegramId: bigint, text: string, options: { silent: boolean; apps?: MiniApp[] }) {
     await this.call("sendMessage", {
-      chat_id: Number(this.config.ownerTelegramId),
+      chat_id: Number(telegramId),
       text,
       disable_notification: options.silent,
       ...(options.apps && { reply_markup: { inline_keyboard: this.appButtons(options.apps) } }),
@@ -257,10 +323,9 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
     }
   }
 
-  private isOwnerPrivateChat(message: Message) {
+  private isPrivateChat(message: Message) {
     return (
       message.from !== undefined &&
-      BigInt(message.from.id) === this.config.ownerTelegramId &&
       message.chat.type === "private" &&
       message.chat.id === message.from.id
     );

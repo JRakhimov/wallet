@@ -15,9 +15,9 @@ export class AuthService {
     @Inject(CONFIG) private readonly config: AppConfig,
   ) {}
 
-  /** Creates a session for the configured owner. Call only after the caller is verified. */
-  async login() {
-    const owner = await this.owners.ensureOwner(this.config.ownerTelegramId);
+  /** Creates a session for a user. Call only after the caller is verified and allowed in. */
+  async login(telegramId: bigint) {
+    const owner = await this.owners.ensureOwner(telegramId);
     const token = randomBytes(32).toString("base64url");
     const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
 

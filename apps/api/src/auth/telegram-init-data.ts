@@ -1,4 +1,4 @@
-import { ForbiddenException, UnauthorizedException } from "@nestjs/common";
+import { UnauthorizedException } from "@nestjs/common";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 
@@ -11,15 +11,11 @@ const telegramUserSchema = z.object({
 });
 
 /**
- * Validates Mini App `initData` and checks that it belongs to the wallet owner.
+ * Validates Mini App `initData` and returns the Telegram user it was signed for. Whether that
+ * user may enter is decided by AccessService.
  * https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
  */
-export function verifyTelegram(
-  initData: string,
-  botToken: string,
-  ownerId: bigint,
-  now = Date.now(),
-) {
+export function verifyTelegram(initData: string, botToken: string, now = Date.now()) {
   const params = new URLSearchParams(initData);
   const keys = [...params.keys()];
   if (new Set(keys).size !== keys.length) {
@@ -46,9 +42,6 @@ export function verifyTelegram(
   const user = telegramUserSchema.safeParse(parseJson(params.get("user")));
   if (!user.success) {
     throw new UnauthorizedException("Нет пользователя Telegram");
-  }
-  if (BigInt(user.data.id) !== ownerId) {
-    throw new ForbiddenException("Этот кошелёк доступен только владельцу");
   }
   return user.data;
 }

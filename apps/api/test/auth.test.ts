@@ -49,21 +49,15 @@ test("dev auth is enabled only by AUTH_MODE=dev in development", () => {
     /HTTPS MINI_APP_URL/,
   );
 });
-test("Telegram signature, owner ID and freshness are all required", () => {
+test("Telegram signature and freshness are required, and the signed user is returned", () => {
   const now = Date.now(),
     token = "123456:secret";
   const valid = signedInitData(123456, token, Math.floor(now / 1000));
-  assert.equal(verifyTelegram(valid, token, 123456n, now).id, 123456);
-  assert.throws(() => verifyTelegram(valid, token, 99n, now));
-  assert.throws(() => verifyTelegram(valid, "wrong-token", 123456n, now));
+  assert.equal(verifyTelegram(valid, token, now).id, 123456);
+  assert.throws(() => verifyTelegram(valid, "wrong-token", now));
   assert.throws(() =>
-    verifyTelegram(
-      signedInitData(123456, token, Math.floor(now / 1000) - 400),
-      token,
-      123456n,
-      now,
-    ),
+    verifyTelegram(signedInitData(123456, token, Math.floor(now / 1000) - 400), token, now),
   );
-  assert.throws(() => verifyTelegram(valid.replace("123456", "123457"), token, 123456n, now));
-  assert.throws(() => verifyTelegram(valid + "&user=%7B%22id%22%3A123456%7D", token, 123456n, now));
+  assert.throws(() => verifyTelegram(valid.replace("123456", "123457"), token, now));
+  assert.throws(() => verifyTelegram(valid + "&user=%7B%22id%22%3A123456%7D", token, now));
 });

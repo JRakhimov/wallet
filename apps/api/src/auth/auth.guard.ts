@@ -1,15 +1,9 @@
-import {
-  CanActivate,
-  ExecutionContext,
-  Inject,
-  Injectable,
-  UnauthorizedException,
-} from "@nestjs/common";
+import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
+import { AccessService } from "../access/access.service";
 import { IS_PUBLIC } from "../common/decorators/public.decorator";
 import { OwnerRequest } from "../common/types/owner-request";
 import { sha256 } from "../common/utils/hash";
-import { AppConfig, CONFIG } from "../config/app-config";
 import { PrismaService } from "../prisma/prisma.service";
 
 const BEARER_TOKEN = /^Bearer ([A-Za-z0-9_-]{43})$/;
@@ -20,7 +14,7 @@ export class AuthGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly db: PrismaService,
-    @Inject(CONFIG) private readonly config: AppConfig,
+    private readonly access: AccessService,
   ) {}
 
   async canActivate(context: ExecutionContext) {
@@ -46,7 +40,7 @@ export class AuthGuard implements CanActivate {
     const valid =
       session &&
       session.expiresAt.getTime() > Date.now() &&
-      session.owner.telegramId === this.config.ownerTelegramId;
+      (await this.access.isAllowed(session.owner.telegramId));
     if (!valid) {
       throw new UnauthorizedException("Сессия истекла. Выполните вход снова");
     }

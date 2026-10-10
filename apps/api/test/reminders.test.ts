@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { Prisma } from "@prisma/client";
 import { DateTime } from "luxon";
 import { readConfig } from "../src/config/app-config";
+import { AccessService } from "../src/access/access.service";
 import { PrismaService } from "../src/prisma/prisma.service";
 import { ReminderService } from "../src/telegram/reminder.service";
 import { DayState, dueReminders, reminderFor } from "../src/telegram/reminders";
@@ -76,7 +77,9 @@ function fixture(counts: { meals: number; dinners: number; expenses: number }) {
   let failSend = false;
   const db = {
     owner: {
-      findUnique: async () => ({ id: "owner", timezone, nutritionProfile: { ownerId: "owner" } }),
+      findMany: async () => [
+        { id: "owner", telegramId: 123n, timezone, nutritionProfile: { ownerId: "owner" } },
+      ],
     },
     meal: {
       count: async ({ where }: { where: { eatenAt: { gte: Date } } }) =>
@@ -85,8 +88,8 @@ function fixture(counts: { meals: number; dinners: number; expenses: number }) {
     },
     operation: { count: async () => counts.expenses },
     reminder: {
-      create: async ({ data }: { data: { kind: string; date: string } }) => {
-        const key = `${data.kind}/${data.date}`;
+      create: async ({ data }: { data: { ownerId: string; kind: string; date: string } }) => {
+        const key = `${data.ownerId}/${data.kind}/${data.date}`;
         if (claimed.has(key)) {
           throw new Prisma.PrismaClientKnownRequestError("Duplicate", {
             code: "P2002",
@@ -96,13 +99,18 @@ function fixture(counts: { meals: number; dinners: number; expenses: number }) {
         claimed.add(key);
       },
       update: async () => undefined,
-      delete: async ({ where }: { where: { kind_date: { kind: string; date: string } } }) => {
-        claimed.delete(`${where.kind_date.kind}/${where.kind_date.date}`);
+      delete: async ({
+        where,
+      }: {
+        where: { ownerId_kind_date: { ownerId: string; kind: string; date: string } };
+      }) => {
+        const { ownerId, kind, date } = where.ownerId_kind_date;
+        claimed.delete(`${ownerId}/${kind}/${date}`);
       },
     },
   };
   const bot = {
-    sendToOwner: async (text: string, options: { silent: boolean }) => {
+    sendTo: async (_telegramId: bigint, text: string, options: { silent: boolean }) => {
       if (failSend) throw new Error("down");
       sent.push({ text, silent: options.silent });
     },
@@ -111,6 +119,7 @@ function fixture(counts: { meals: number; dinners: number; expenses: number }) {
     db as unknown as PrismaService,
     bot as unknown as TelegramBotService,
     config,
+    { allowedIds: async () => [123n] } as unknown as AccessService,
   );
   return { service, sent, failSend: (value: boolean) => (failSend = value) };
 }
