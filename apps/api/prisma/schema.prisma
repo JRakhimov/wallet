@@ -21,9 +21,11 @@ model Owner {
   budgets    Budget[]
   nutritionProfile NutritionProfile?
   reminders        Reminder[]
+  subscriptions    Subscription[]
   meals            Meal[]
   mealPhotos       MealPhoto[]
   workouts         Workout[]
+  tasks            Task[]
 }
 
 model Session {
@@ -69,6 +71,8 @@ model Operation {
   kind           String
   amount         Decimal  @db.Decimal(20, 2)
   currency       String   @default("UZS")
+  // Transfers between accounts in different currencies: UZS per 1 USD, entered by the user.
+  rate           Decimal? @db.Decimal(20, 6)
   categoryId     String?  @db.Uuid
   category       Category? @relation(fields: [categoryId], references: [id])
   note           String   @default("")
@@ -108,6 +112,20 @@ model Budget {
   @@unique([ownerId, month])
 }
 
+// A monthly subscription: charged on the same day of every month.
+model Subscription {
+  id        String   @id @default(uuid()) @db.Uuid
+  ownerId   String   @db.Uuid
+  owner     Owner    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name      String
+  amount    Decimal  @db.Decimal(20, 2)
+  // 1-31; in a shorter month the charge falls on its last day.
+  chargeDay Int
+  createdAt DateTime @default(now())
+
+  @@index([ownerId])
+}
+
 model BotUpdate {
   updateId BigInt @id
   processedAt DateTime @default(now())
@@ -123,7 +141,7 @@ model AccessGrant {
 model Reminder {
   ownerId   String   @db.Uuid
   owner     Owner    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  kind      String   // lunch | evening
+  kind      String   // lunch | evening | subscription_eve | subscription_morning
   date      String   // yyyy-MM-dd in the owner's timezone
   sent      Boolean  @default(false)
   createdAt DateTime @default(now())
@@ -231,4 +249,36 @@ model Workout {
 
   @@unique([ownerId, idempotencyKey])
   @@index([ownerId, performedAt])
+}
+
+model Task {
+  id             String    @id @default(uuid()) @db.Uuid
+  ownerId        String    @db.Uuid
+  owner          Owner     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  title          String
+  note           String    @default("")
+  // yyyy-MM-dd in the owner's timezone; null for a note without a date.
+  dueDate        String?
+  // HH:mm; null for the whole day (reminded in the morning).
+  dueTime        String?
+  repeat         String    @default("none") // none | daily | weekdays | weekly | monthly | yearly
+  // ISO weekdays 1-7 (Monday-Sunday) for a weekly repeat.
+  repeatDays     Int[]     @default([])
+  // The first date: monthly and yearly repeats keep its day (31 -> 30 -> 31 again).
+  anchorDate     String?
+  // When the reminder for the current due date is sent; null when there is nothing to send.
+  remindAt       DateTime? @db.Timestamptz(3)
+  // Set by "remind later" in the bot.
+  snoozeAt       DateTime? @db.Timestamptz(3)
+  doneAt         DateTime? @db.Timestamptz(3)
+  idempotencyKey String
+  version        Int       @default(1)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  @@unique([ownerId, idempotencyKey])
+  @@index([remindAt])
+  @@index([snoozeAt])
+  @@index([ownerId, doneAt])
 }

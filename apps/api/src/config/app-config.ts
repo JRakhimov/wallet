@@ -41,6 +41,8 @@ export interface AppConfig {
   miniAppUrl: string;
   /** Nutrition Mini App URL for the bot's /start buttons; empty when not deployed. */
   nutritionAppUrl: string;
+  /** Tasks Mini App URL for the bot's buttons; empty when not deployed. */
+  tasksAppUrl: string;
   voice: VoiceConfig | null;
   nutrition: {
     llm: LlmConfig | null;
@@ -84,6 +86,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const ownerTelegramId = env.OWNER_TELEGRAM_ID || env.INITIAL_OWNER_TELEGRAM_ID || "";
   const miniAppUrl = env.MINI_APP_URL || originUrl.origin;
   const nutritionAppUrl = env.NUTRITION_APP_URL || "";
+  const tasksAppUrl = env.TASKS_APP_URL || "";
   if (!dev) {
     if (!botToken || !/^[1-9]\d*$/.test(ownerTelegramId)) {
       throw new Error("Telegram auth requires BOT_TOKEN and OWNER_TELEGRAM_ID");
@@ -93,6 +96,9 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     }
     if (nutritionAppUrl && new URL(nutritionAppUrl).protocol !== "https:") {
       throw new Error("Telegram Mini App requires HTTPS NUTRITION_APP_URL");
+    }
+    if (tasksAppUrl && new URL(tasksAppUrl).protocol !== "https:") {
+      throw new Error("Telegram Mini App requires HTTPS TASKS_APP_URL");
     }
   }
 
@@ -119,6 +125,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     botInDev,
     miniAppUrl,
     nutritionAppUrl,
+    tasksAppUrl,
     voice: readVoiceConfig(env),
     nutrition: {
       llm: readLlmConfig(env),

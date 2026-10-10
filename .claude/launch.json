@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "tasks-web",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["PORT=3001", "npx", "vite", "--config", "apps/tasks-web/vite.config.ts"],
+      "port": 5175
+    }
+  ]
+}

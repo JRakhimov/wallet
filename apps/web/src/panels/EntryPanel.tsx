@@ -3,9 +3,11 @@ import { Account, Category, OperationInput } from "../api";
 import { request } from "@ui/lib/api-client";
 import { SelectField } from "@ui/components/SelectField";
 import { accountChoices, categoryChoices } from "../lib/choices";
+import { creditedAmount, isCrossCurrency } from "../lib/currency";
 import {
   centsToAmount,
-  money,
+  currencyUnit,
+  formatMoney,
   normalizeAmount,
   occurrenceForDay,
   parseCents,
@@ -29,6 +31,7 @@ export function EntryPanel({
   const [amount, setAmount] = useState("");
   const [source, setSource] = useState(accounts[0]?.id || "");
   const [target, setTarget] = useState(accounts[1]?.id || "");
+  const [rate, setRate] = useState("");
   const [category, setCategory] = useState(
     categories.find((c) => c.kind === "income" && !c.archived)?.id || "",
   );
@@ -41,13 +44,24 @@ export function EntryPanel({
     attempt.current = null;
     setError("");
   };
-  const currentCents = parseCents(accounts.find((a) => a.id === source)?.balance || "0") || 0;
+  const sourceAccount = accounts.find((a) => a.id === source);
+  const targetAccount = accounts.find((a) => a.id === target);
+  const sourceCurrency = sourceAccount?.currency || "UZS";
+  const unit = currencyUnit(sourceCurrency);
+  const needsRate = type === "transfer" && isCrossCurrency(accounts, source, target);
+  const rateCents = parseCents(rate);
+  const rateValid = rateCents !== null && rateCents > 0;
+  const currentCents = parseCents(sourceAccount?.balance || "0") || 0;
   const enteredCents = parseCents(amount);
   const difference = enteredCents === null ? null : enteredCents - currentCents;
   const canSave =
     type === "adjustment"
       ? difference !== null && difference !== 0 && Math.abs(difference) < 100_000_000_000_000
-      : enteredCents !== null && enteredCents > 0;
+      : enteredCents !== null && enteredCents > 0 && (!needsRate || rateValid);
+  const credited =
+    needsRate && enteredCents !== null && rateValid
+      ? creditedAmount(enteredCents / 100, sourceCurrency, rateCents / 100)
+      : null;
   async function save() {
     setBusy(true);
     setError("");
@@ -59,6 +73,7 @@ export function EntryPanel({
       occurredAt: occurrenceForDay(date, timezone),
     };
     if (type === "transfer") body.targetAccountId = target;
+    if (needsRate) body.rate = normalizeAmount(rate);
     if (type === "income") body.categoryId = category;
     if (type === "adjustment") body.direction = (difference || 0) > 0 ? "in" : "out";
     const submission = attempt.current || { key: crypto.randomUUID(), body };
@@ -90,12 +105,12 @@ export function EntryPanel({
       />
       {type === "adjustment" && (
         <p className="sheet-desc">
-          По учёту сейчас {money(currentCents / 100)} сум. Введите фактический остаток, разница
-          запишется отдельной операцией.
+          По учёту сейчас {formatMoney(currentCents / 100, sourceCurrency)}. Введите фактический
+          остаток, разница запишется отдельной операцией.
         </p>
       )}
       <label className="field-label">
-        {type === "adjustment" ? "Фактический остаток, сум" : "Сумма, сум"}
+        {type === "adjustment" ? `Фактический остаток, ${unit}` : `Сумма, ${unit}`}
         <AmountInput
           value={amount}
           onChange={(value) => {
@@ -108,7 +123,7 @@ export function EntryPanel({
       {type === "adjustment" && difference !== null && difference !== 0 && (
         <p className="sheet-desc">
           Корректировка: {difference > 0 ? "+" : "−"}
-          {money(Math.abs(difference) / 100)} сум
+          {formatMoney(Math.abs(difference) / 100, sourceCurrency)}
         </p>
       )}
       {type === "transfer" && (
@@ -121,6 +136,26 @@ export function EntryPanel({
             reset();
           }}
         />
+      )}
+      {needsRate && (
+        <>
+          <label className="field-label">
+            Курс, сум за 1 $
+            <AmountInput
+              value={rate}
+              onChange={(value) => {
+                setRate(value);
+                reset();
+              }}
+              placeholder="Например, 12 650"
+            />
+          </label>
+          {credited !== null && targetAccount && (
+            <p className="sheet-desc">
+              Будет зачислено примерно {formatMoney(credited, targetAccount.currency)}
+            </p>
+          )}
+        </>
       )}
       {type === "income" && (
         <SelectField

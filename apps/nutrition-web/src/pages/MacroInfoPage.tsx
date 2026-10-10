@@ -18,6 +18,7 @@ export function MacroInfoPage({
   useTelegramBack(onBack);
 
   const { title, Icon, lead, kcalPerGram, roles, types, sources, tips } = MACRO_INFO[macro];
+
   const percent = target > 0 ? Math.min(100, (eaten / target) * 100) : 0;
   const maxSourceGrams = Math.max(...sources.map((source) => source.grams));
   const sortedSources = [...sources].sort((a, b) => b.grams - a.grams);

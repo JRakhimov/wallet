@@ -6,9 +6,10 @@ import { BudgetsModule } from "./budgets/budgets.module";
 import { CategoriesModule } from "./categories/categories.module";
 import { OperationsModule } from "./operations/operations.module";
 import { ReportsModule } from "./reports/reports.module";
+import { SubscriptionsModule } from "./subscriptions/subscriptions.module";
 import { defaultAccount, defaultCategories } from "./wallet-defaults";
 
-/** Wallet mini app: accounts, categories, operations, budgets and reports. */
+/** Wallet mini app: accounts, categories, operations, budgets, subscriptions and reports. */
 @Module({
   imports: [
     OwnerModule,
@@ -17,6 +18,7 @@ import { defaultAccount, defaultCategories } from "./wallet-defaults";
     OperationsModule,
     BudgetsModule,
     ReportsModule,
+    SubscriptionsModule,
   ],
 })
 export class WalletModule implements OnModuleInit {

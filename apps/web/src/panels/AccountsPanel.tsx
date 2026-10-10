@@ -3,8 +3,8 @@ import { CreditCard } from "lucide-react";
 import { Account } from "../api";
 import { request } from "@ui/lib/api-client";
 import { SelectField } from "@ui/components/SelectField";
-import { accountKindChoices } from "../lib/choices";
-import { money, normalizeAmount } from "@ui/lib/format";
+import { accountKindChoices, currencyChoices } from "../lib/choices";
+import { currencyUnit, formatMoney, normalizeAmount } from "@ui/lib/format";
 import { AmountInput } from "@ui/components/AmountInput";
 
 export function AccountsPanel({
@@ -16,6 +16,7 @@ export function AccountsPanel({
 }) {
   const [name, setName] = useState("");
   const [kind, setKind] = useState("card");
+  const [currency, setCurrency] = useState("UZS");
   const [openingBalance, setOpeningBalance] = useState("0");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -30,6 +31,7 @@ export function AccountsPanel({
         body: JSON.stringify({
           name,
           kind,
+          currency,
           openingBalance: normalizeAmount(openingBalance) || "0",
         }),
       });
@@ -84,7 +86,7 @@ export function AccountsPanel({
             </span>
             <span className="manage-text">
               <strong>{a.name}</strong>
-              <small>{a.archived ? "В архиве" : money(a.balance) + " сум"}</small>
+              <small>{a.archived ? "В архиве" : formatMoney(a.balance, a.currency)}</small>
             </span>
             <button
               className="text-button"
@@ -134,8 +136,14 @@ export function AccountsPanel({
         />
       </label>
       <SelectField label="Тип" value={kind} options={accountKindChoices} onChange={setKind} />
+      <SelectField
+        label="Валюта"
+        value={currency}
+        options={currencyChoices}
+        onChange={setCurrency}
+      />
       <label className="field-label">
-        Начальный остаток, сум
+        Начальный остаток, {currencyUnit(currency)}
         <AmountInput value={openingBalance} onChange={setOpeningBalance} allowNegative />
       </label>
       {error && (

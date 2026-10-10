@@ -28,7 +28,7 @@ export class AccountsService {
   create(ownerId: string, input: CreateAccountDto) {
     return this.db.ownerTransaction(ownerId, async (tx) => {
       const account = await tx.account.create({
-        data: { ownerId, name: input.name, kind: input.kind },
+        data: { ownerId, name: input.name, kind: input.kind, currency: input.currency },
       });
 
       const openingBalance = new Prisma.Decimal(input.openingBalance);
@@ -38,6 +38,7 @@ export class AccountsService {
             ownerId,
             kind: "opening",
             amount: openingBalance.abs(),
+            currency: account.currency,
             occurredAt: new Date(),
             note: "Начальный остаток",
             idempotencyKey: `opening-${account.id}`,

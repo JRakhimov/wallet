@@ -4,7 +4,15 @@ import { Account, Category, Operation, OperationInput } from "../api";
 import { request } from "@ui/lib/api-client";
 import { SelectField } from "@ui/components/SelectField";
 import { accountChoices, categoryChoices } from "../lib/choices";
-import { money, normalizeAmount, occurrenceForDay, today } from "@ui/lib/format";
+import { isCrossCurrency } from "../lib/currency";
+import {
+  currencyUnit,
+  formatMoney,
+  normalizeAmount,
+  occurrenceForDay,
+  parseCents,
+  today,
+} from "@ui/lib/format";
 import { AmountInput } from "@ui/components/AmountInput";
 
 export function OperationPanel({
@@ -34,6 +42,7 @@ export function OperationPanel({
   const [target, setTarget] = useState(
     operation.entries.find((e) => !e.amount.startsWith("-"))?.accountId || "",
   );
+  const [rate, setRate] = useState(operation.rate || "");
   const [category, setCategory] = useState(operation.category?.id || "");
   const [note, setNote] = useState(operation.note);
   const [date, setDate] = useState(operation.localDate);
@@ -44,6 +53,11 @@ export function OperationPanel({
   const refundAttempt = useRef<{ key: string; body: OperationInput } | null>(null);
   const editable = ["expense", "income", "transfer", "adjustment", "refund"].includes(op.kind);
   const maxRefund = Number(op.amount) - Number(op.refunded);
+  const editCurrency = accounts.find((a) => a.id === account)?.currency || op.currency;
+  const needsRate = op.kind === "transfer" && isCrossCurrency(accounts, account, target);
+  const rateValid = (parseCents(rate) ?? 0) > 0;
+  // A transfer between currencies credits a different amount than it debits.
+  const credit = op.kind === "transfer" ? op.entries.find((e) => !e.amount.startsWith("-")) : null;
   async function send(method: string, path: string, body: unknown, key?: string) {
     setBusy(true);
     setError("");
@@ -72,6 +86,7 @@ export function OperationPanel({
     };
     if (op.kind === "expense" || op.kind === "income") input.categoryId = category;
     if (op.kind === "transfer") input.targetAccountId = target;
+    if (needsRate) input.rate = normalizeAmount(rate);
     if (op.kind === "adjustment")
       input.direction = op.entries[0]?.amount.startsWith("-") ? "out" : "in";
     if (op.kind === "refund") input.parentId = op.parentId || undefined;
@@ -91,8 +106,10 @@ export function OperationPanel({
       occurredAt: new Date().toISOString(),
     };
     if (op.kind === "expense" || op.kind === "income") input.categoryId = op.category?.id;
-    if (op.kind === "transfer")
+    if (op.kind === "transfer") {
       input.targetAccountId = op.entries.find((e) => !e.amount.startsWith("-"))?.accountId;
+      if (op.rate) input.rate = op.rate;
+    }
     const attempt = repeatAttempt.current || {
       key: crypto.randomUUID(),
       body: input,
@@ -143,7 +160,13 @@ export function OperationPanel({
             ? `Возврат · ${op.category?.name || "покупка"}`
             : op.category?.name || op.kind}
         </span>
-        <strong>{money(op.amount)} сум</strong>
+        <strong>{formatMoney(op.amount, op.currency)}</strong>
+        {op.rate && credit && (
+          <small>
+            Зачислено {formatMoney(credit.amount, credit.currency)} · курс{" "}
+            {formatMoney(op.rate, "UZS")} за 1 $
+          </small>
+        )}
         <small>
           {DateTime.fromISO(op.occurredAt)
             .setZone(timezone)
@@ -165,7 +188,7 @@ export function OperationPanel({
       {edit && (
         <div className="edit-form">
           <label className="field-label">
-            Сумма
+            Сумма, {currencyUnit(editCurrency)}
             <AmountInput value={amount} onChange={setAmount} />
           </label>
           <SelectField
@@ -181,6 +204,12 @@ export function OperationPanel({
               options={accountChoices(accounts)}
               onChange={setTarget}
             />
+          )}
+          {needsRate && (
+            <label className="field-label">
+              Курс, сум за 1 $
+              <AmountInput value={rate} onChange={setRate} placeholder="Например, 12 650" />
+            </label>
           )}
           {["expense", "income"].includes(op.kind) && (
             <SelectField
@@ -211,7 +240,7 @@ export function OperationPanel({
           </label>
           <button
             className="primary full"
-            disabled={busy || !(Number(normalizeAmount(amount)) > 0)}
+            disabled={busy || !(Number(normalizeAmount(amount)) > 0) || (needsRate && !rateValid)}
             onClick={saveEdit}
           >
             Сохранить изменения
@@ -231,7 +260,7 @@ export function OperationPanel({
       {op.kind === "expense" && !op.deleted && maxRefund > 0 && !edit && (
         <div className="refund-box">
           <label className="field-label">
-            Возврат, не больше {money(maxRefund)} сум
+            Возврат, не больше {formatMoney(maxRefund, op.currency)}
             <AmountInput
               value={refundAmount}
               onChange={(value) => {

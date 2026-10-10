@@ -7,7 +7,7 @@ import { request } from "@ui/lib/api-client";
 import { MonthSwitch } from "@ui/components/MonthSwitch";
 import { OperationRow } from "../components/OperationRow";
 import { Sheet, SheetPresence } from "@ui/components/Sheet";
-import { currentMonth, money } from "@ui/lib/format";
+import { currentMonth, formatMoney } from "@ui/lib/format";
 import { useRefresh } from "../lib/useRefresh";
 import { OperationPanel } from "../panels/OperationPanel";
 
@@ -124,24 +124,7 @@ export function HistoryPage({
               <div className="day-group" key={date}>
                 <div className="day-heading">
                   <strong>{DateTime.fromISO(date).setLocale("ru").toFormat("d MMMM")}</strong>
-                  {items.some((op) => op.kind === "expense" || op.kind === "refund") && (
-                    <span>
-                      Расходы{" "}
-                      {money(
-                        items.reduce(
-                          (sum, op) =>
-                            sum +
-                            (op.kind === "expense"
-                              ? Number(op.amount)
-                              : op.kind === "refund"
-                                ? -Number(op.amount)
-                                : 0),
-                          0,
-                        ),
-                      )}{" "}
-                      сум
-                    </span>
-                  )}
+                  {dayExpenses(items) && <span>Расходы {dayExpenses(items)}</span>}
                 </div>
                 {items.map((op) => (
                   <OperationRow
@@ -191,4 +174,20 @@ export function HistoryPage({
       </SheetPresence>
     </div>
   );
+}
+
+/** A day's spending per currency, e.g. "120 000 сум · 15,00 $"; empty when nothing was spent. */
+function dayExpenses(operations: Operation[]) {
+  const totals = new Map<string, number>();
+
+  for (const op of operations) {
+    if (op.kind !== "expense" && op.kind !== "refund") {
+      continue;
+    }
+
+    const spent = op.kind === "expense" ? Number(op.amount) : -Number(op.amount);
+    totals.set(op.currency, (totals.get(op.currency) ?? 0) + spent);
+  }
+
+  return [...totals].map(([currency, total]) => formatMoney(total, currency)).join(" · ");
 }

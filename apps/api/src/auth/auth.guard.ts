@@ -37,6 +37,7 @@ export class AuthGuard implements CanActivate {
       where: { tokenHash },
       include: { owner: true },
     });
+
     const valid =
       session &&
       session.expiresAt.getTime() > Date.now() &&
@@ -47,6 +48,7 @@ export class AuthGuard implements CanActivate {
 
     req.ownerId = session.ownerId;
     req.sessionHash = tokenHash;
+
     return true;
   }
 }

@@ -7,6 +7,7 @@ import { readConfig } from "../src/config/app-config";
 import { AccessService } from "../src/access/access.service";
 import { PrismaService } from "../src/prisma/prisma.service";
 import { ReminderService } from "../src/telegram/reminder.service";
+import { chargeDayIn, isChargedOn, nextChargeDate } from "../src/wallet/subscriptions/charge-date";
 import { DayState, dueReminders, reminderFor } from "../src/telegram/reminders";
 import { TelegramBotService } from "../src/telegram/telegram-bot.service";
 
@@ -17,6 +18,8 @@ const day = (changes: Partial<DayState> = {}): DayState => ({
   mealsToday: 2,
   dinnerLogged: true,
   expensesToday: 5,
+  subscriptionsToday: [],
+  subscriptionsTomorrow: [],
   ...changes,
 });
 
@@ -26,6 +29,8 @@ test("a check is due from its time until the grace period ends", () => {
   assert.deepEqual(dueReminders(at("14:59")), ["lunch"]);
   assert.deepEqual(dueReminders(at("15:00")), []);
   assert.deepEqual(dueReminders(at("20:30")), ["evening"]);
+  assert.deepEqual(dueReminders(at("08:00")), ["subscription_morning"]);
+  assert.deepEqual(dueReminders(at("18:30")), ["subscription_eve"]);
 });
 
 test("14:00 reminds only when no meal was added today", () => {
@@ -71,7 +76,12 @@ const config = readConfig({
   OWNER_TELEGRAM_ID: "123",
 });
 
-function fixture(counts: { meals: number; dinners: number; expenses: number }) {
+type StoredSubscription = { name: string; amount: Prisma.Decimal; chargeDay: number };
+
+function fixture(
+  counts: { meals: number; dinners: number; expenses: number },
+  subscriptions: StoredSubscription[] = [],
+) {
   const claimed = new Set<string>();
   const sent: { text: string; silent: boolean }[] = [];
   let failSend = false;
@@ -87,6 +97,7 @@ function fixture(counts: { meals: number; dinners: number; expenses: number }) {
         where.eatenAt.gte.getTime() === at("00:00").toMillis() ? counts.meals : counts.dinners,
     },
     operation: { count: async () => counts.expenses },
+    subscription: { findMany: async () => subscriptions },
     reminder: {
       create: async ({ data }: { data: { ownerId: string; kind: string; date: string } }) => {
         const key = `${data.ownerId}/${data.kind}/${data.date}`;
@@ -153,4 +164,76 @@ test("a missed reminder is not sent hours late", async () => {
   const { service, sent } = fixture({ meals: 0, dinners: 0, expenses: 5 });
   await service.tick(at("17:00"));
   assert.equal(sent.length, 0);
+});
+
+test("a subscription reminder lists what is charged and the total", () => {
+  const due = [
+    { name: "Netflix", amount: "50000.00" },
+    { name: "Музыка", amount: "29900.50" },
+  ];
+
+  const eve = reminderFor("subscription_eve", day({ subscriptionsTomorrow: due }))!;
+  const morning = reminderFor("subscription_morning", day({ subscriptionsToday: due }))!;
+
+  assert.equal(
+    eve.text,
+    "📅 Завтра спишутся подписки:\n• Netflix: 50 000 сум\n• Музыка: 29 900,50 сум\nИтого: 79 900,50 сум",
+  );
+  assert.match(morning.text, /^☀️ Сегодня спишутся подписки:/);
+  assert.deepEqual(eve.apps, ["wallet"]);
+});
+
+test("a single subscription has no total, and no charges mean no reminder", () => {
+  const single = reminderFor(
+    "subscription_eve",
+    day({ subscriptionsTomorrow: [{ name: "Netflix", amount: "50000.00" }] }),
+  )!;
+
+  assert.equal(single.text, "📅 Завтра спишутся подписки:\n• Netflix: 50 000 сум");
+  assert.equal(reminderFor("subscription_eve", day()), null);
+  assert.equal(reminderFor("subscription_morning", day()), null);
+});
+
+test("a charge day missing from a short month moves to the last day", () => {
+  const february = DateTime.fromISO("2026-02-10", { zone: timezone });
+  const april = DateTime.fromISO("2026-04-30", { zone: timezone });
+
+  assert.equal(chargeDayIn(31, february), 28);
+  assert.equal(isChargedOn(31, april), true);
+  assert.equal(isChargedOn(30, april), true);
+  assert.equal(isChargedOn(15, april), false);
+});
+
+test("the next charge date counts today and rolls over to the next month", () => {
+  const octoberFifteenth = DateTime.fromISO("2026-10-15T09:00", { zone: timezone });
+
+  assert.equal(nextChargeDate(15, octoberFifteenth).toISODate(), "2026-10-15");
+  assert.equal(nextChargeDate(14, octoberFifteenth).toISODate(), "2026-11-14");
+  assert.equal(nextChargeDate(31, octoberFifteenth).toISODate(), "2026-10-31");
+  assert.equal(
+    nextChargeDate(31, DateTime.fromISO("2026-11-05", { zone: timezone })).toISODate(),
+    "2026-11-30",
+  );
+  assert.equal(
+    nextChargeDate(1, DateTime.fromISO("2026-12-20", { zone: timezone })).toISODate(),
+    "2027-01-01",
+  );
+});
+
+test("subscription reminders go out the day before and on the day, once each", async () => {
+  const subscription = { name: "Netflix", amount: new Prisma.Decimal("50000"), chargeDay: 15 };
+  const { service, sent } = fixture({ meals: 2, dinners: 1, expenses: 4 }, [subscription]);
+
+  await service.tick(at("08:01"));
+  assert.equal(sent.length, 0);
+
+  await service.tick(at("18:01"));
+  await service.tick(at("18:02"));
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].text, /^📅 Завтра/);
+
+  const dayOf = DateTime.fromISO("2026-10-15T08:01", { zone: timezone });
+  await service.tick(dayOf);
+  assert.equal(sent.length, 2);
+  assert.match(sent[1].text, /^☀️ Сегодня/);
 });

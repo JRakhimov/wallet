@@ -9,7 +9,14 @@ import { CategoryIcon } from "../components/CategoryIcon";
 import { SelectField } from "@ui/components/SelectField";
 import { Sheet, SheetPresence } from "@ui/components/Sheet";
 import { accountChoices } from "../lib/choices";
-import { money, monthLabel, occurrenceForDay, today } from "@ui/lib/format";
+import {
+  currencyUnit,
+  formatMoney,
+  money,
+  monthLabel,
+  occurrenceForDay,
+  today,
+} from "@ui/lib/format";
 import { amountFromKeys, amountLabel } from "../lib/keypad";
 import { useRefresh } from "../lib/useRefresh";
 import { ExpenseDraft } from "./useExpenseDraft";
@@ -110,7 +117,7 @@ export function HomePage({
       setNote("");
       setAttempt(null);
       setError("");
-      setFeedback("Записано: " + money(op.amount) + " сум");
+      setFeedback("Записано: " + formatMoney(op.amount, op.currency));
       telegram?.HapticFeedback?.notificationOccurred("success");
       await refresh();
     },
@@ -166,7 +173,7 @@ export function HomePage({
         >
           {amountLabel(amount)}
         </output>
-        <span className="unit">сум</span>
+        <span className="unit">{currencyUnit(selectedAccount?.currency || "UZS")}</span>
         <button
           className="clear-amount"
           aria-label="Очистить сумму"

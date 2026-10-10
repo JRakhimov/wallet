@@ -69,6 +69,41 @@ test(
       assert.equal(accounts.find((a) => a.id === cash.id)?.balance, "100.00");
       await operations.remove(owner.id, refund.id, refund.version);
       assert.equal((await reports.summary(owner.id)).netExpense, "50.00");
+
+      // A transfer between currencies credits the target account at the entered rate,
+      // and spending in dollars stays out of the reports in sums.
+      const dollars = await accountsService.create(owner.id, {
+        name: "Dollars",
+        kind: "cash",
+        currency: "USD",
+        openingBalance: "0",
+      });
+      const exchange = {
+        kind: "transfer" as const,
+        amount: "1265000.00",
+        accountId: cash.id,
+        targetAccountId: dollars.id,
+        note: "",
+        occurredAt: when,
+      };
+      await assert.rejects(operations.create(owner.id, exchange, randomUUID()), /Укажите курс/);
+      const exchanged = await operations.create(
+        owner.id,
+        { ...exchange, rate: "12650" },
+        randomUUID(),
+      );
+      assert.equal(exchanged.rate, "12650");
+      assert.equal(
+        (await accountsService.list(owner.id)).find((a) => a.id === dollars.id)?.balance,
+        "100.00",
+      );
+
+      await operations.create(
+        owner.id,
+        { ...expense, amount: "10.00", accountId: dollars.id },
+        randomUUID(),
+      );
+      assert.equal((await reports.summary(owner.id)).netExpense, "50.00");
     } finally {
       await db.entry.deleteMany({ where: { operation: { ownerId: owner.id } } });
       await db.operation.deleteMany({ where: { ownerId: owner.id } });

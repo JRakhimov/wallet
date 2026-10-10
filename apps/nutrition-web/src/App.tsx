@@ -45,8 +45,10 @@ export function App() {
   const queryClient = useQueryClient();
   const auth = useAuth();
   const [tab, setTab] = useState<Tab>("today");
+
   // Changing the key remounts TodayPage, closing any open macro reference page.
   const [todayResetKey, setTodayResetKey] = useState(0);
+
   const [toast, setToast] = useState("");
   const addMeal = useRef<AddMealFlowHandle>(null);
   // `workout` is set when an existing workout is edited.
@@ -158,6 +160,7 @@ export function App() {
         if (next === "today" && tab === "today") {
           setTodayResetKey((key) => key + 1);
         }
+
         setTab(next);
       }}
       toast={toast}

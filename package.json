@@ -6,14 +6,16 @@
     "node": ">=22.12"
   },
   "scripts": {
-    "dev": "npm run build:api && concurrently -k -n api-ts,api,wallet,nutrition -c gray,green,blue,cyan \"tsc -p apps/api/tsconfig.json --watch --preserveWatchOutput\" \"node --watch apps/api/dist/main.js\" \"vite --config apps/web/vite.config.ts\" \"vite --config apps/nutrition-web/vite.config.ts\"",
+    "dev": "npm run build:api && concurrently -k -n api-ts,api,wallet,nutrition,tasks -c gray,green,blue,cyan,yellow \"tsc -p apps/api/tsconfig.json --watch --preserveWatchOutput\" \"node --watch apps/api/dist/main.js\" \"vite --config apps/web/vite.config.ts\" \"vite --config apps/nutrition-web/vite.config.ts\" \"vite --config apps/tasks-web/vite.config.ts\"",
     "dev:api": "npm run build:api && concurrently -k -n api-ts,api -c gray,green \"tsc -p apps/api/tsconfig.json --watch --preserveWatchOutput\" \"node --watch apps/api/dist/main.js\"",
     "dev:web": "vite --config apps/web/vite.config.ts",
     "dev:nutrition": "vite --config apps/nutrition-web/vite.config.ts",
+    "dev:tasks": "vite --config apps/tasks-web/vite.config.ts",
     "build:api": "tsc -p apps/api/tsconfig.json",
-    "build": "npm run db:generate && npm run build:api && npm run build:web && npm run build:nutrition",
+    "build": "npm run db:generate && npm run build:api && npm run build:web && npm run build:nutrition && npm run build:tasks",
     "build:web": "tsc -p apps/web/tsconfig.json && vite build --config apps/web/vite.config.ts",
     "build:nutrition": "tsc -p apps/nutrition-web/tsconfig.json && vite build --config apps/nutrition-web/vite.config.ts",
+    "build:tasks": "tsc -p apps/tasks-web/tsconfig.json && vite build --config apps/tasks-web/vite.config.ts",
     "start": "node apps/api/dist/main.js",
     "db:generate": "prisma generate --schema apps/api/prisma/schema.prisma",
     "db:migrate": "prisma migrate deploy --schema apps/api/prisma/schema.prisma",

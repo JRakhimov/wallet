@@ -37,11 +37,13 @@ export class AuthController {
     if (this.config.dev) {
       throw new ForbiddenException("Используйте локальный вход");
     }
+
     const user = verifyTelegram(body.initData, this.config.botToken);
     const telegramId = BigInt(user.id);
     if (!(await this.access.isAllowed(telegramId))) {
       throw new ForbiddenException("Нет доступа. Попросите владельца открыть вам доступ");
     }
+
     return this.auth.login(telegramId);
   }
 

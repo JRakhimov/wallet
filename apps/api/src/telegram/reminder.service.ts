@@ -10,6 +10,7 @@ import { DateTime } from "luxon";
 import { AccessService } from "../access/access.service";
 import { AppConfig, CONFIG } from "../config/app-config";
 import { PrismaService } from "../prisma/prisma.service";
+import { isChargedOn } from "../wallet/subscriptions/charge-date";
 import { DayState, DINNER_FROM_HOUR, dueReminders, ReminderKind, reminderFor } from "./reminders";
 import { TelegramBotService } from "./telegram-bot.service";
 
@@ -50,12 +51,14 @@ export class ReminderService implements OnApplicationBootstrap, OnModuleDestroy 
     if (this.running) {
       return;
     }
+
     this.running = true;
     try {
       const owners = await this.db.owner.findMany({
         where: { telegramId: { in: await this.access.allowedIds() } },
         include: { nutritionProfile: { select: { ownerId: true } } },
       });
+
       for (const owner of owners) {
         await this.remind(owner, now);
       }
@@ -73,6 +76,7 @@ export class ReminderService implements OnApplicationBootstrap, OnModuleDestroy 
   ) {
     try {
       const local = now.setZone(owner.timezone);
+
       for (const kind of dueReminders(local)) {
         await this.check(kind, owner, local);
       }
@@ -91,18 +95,19 @@ export class ReminderService implements OnApplicationBootstrap, OnModuleDestroy 
     if (!(await this.claim(key))) {
       return;
     }
-    const reminder = reminderFor(
-      kind,
-      await this.dayState(owner.id, Boolean(owner.nutritionProfile), local),
-    );
+
+    const state = await this.dayState(owner.id, Boolean(owner.nutritionProfile), local);
+    const reminder = reminderFor(kind, state);
     if (!reminder) {
       return;
     }
+
     try {
       await this.bot.sendTo(owner.telegramId, reminder.text, {
         silent: false,
         apps: reminder.apps,
       });
+
       await this.db.reminder.update({
         where: { ownerId_kind_date: key },
         data: { sent: true },
@@ -138,13 +143,27 @@ export class ReminderService implements OnApplicationBootstrap, OnModuleDestroy 
     // A meal still being recognized or waiting for review counts: the owner did add it.
     const meals = { ownerId, deletedAt: null, status: { not: "failed" } };
 
-    const [mealsToday, dinners, expensesToday] = await Promise.all([
+    const [mealsToday, dinners, expensesToday, subscriptions] = await Promise.all([
       this.db.meal.count({ where: { ...meals, eatenAt: range } }),
       this.db.meal.count({ where: { ...meals, eatenAt: { gte: dinnerFrom, lt: range.lt } } }),
       this.db.operation.count({
         where: { ownerId, deletedAt: null, kind: "expense", occurredAt: range },
       }),
+      this.db.subscription.findMany({ where: { ownerId }, orderBy: { name: "asc" } }),
     ]);
-    return { tracksMeals, mealsToday, dinnerLogged: dinners > 0, expensesToday };
+
+    const chargedOn = (date: DateTime) =>
+      subscriptions
+        .filter((subscription) => isChargedOn(subscription.chargeDay, date))
+        .map(({ name, amount }) => ({ name, amount: amount.toFixed(2) }));
+
+    return {
+      tracksMeals,
+      mealsToday,
+      dinnerLogged: dinners > 0,
+      expensesToday,
+      subscriptionsToday: chargedOn(local),
+      subscriptionsTomorrow: chargedOn(local.plus({ days: 1 })),
+    };
   }
 }

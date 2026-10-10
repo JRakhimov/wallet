@@ -6,10 +6,13 @@ import {
   OnModuleDestroy,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { DateTime } from "luxon";
 import { setTimeout as delay } from "node:timers/promises";
 import { AccessService } from "../access/access.service";
 import { AppConfig, CONFIG } from "../config/app-config";
 import { PrismaService } from "../prisma/prisma.service";
+import { ALL_DAY_REMIND_HOUR } from "../tasks/recurrence";
+import { TasksService } from "../tasks/tasks.service";
 import { VoiceError, VoiceTransactionService } from "../voice/voice-transaction.service";
 
 /** A voice message or an audio file; both carry speech. */
@@ -23,38 +26,93 @@ type Message = {
   chat: { id: number; type: string };
 };
 
-export type MiniApp = "wallet" | "nutrition";
+/** A tap on an inline button under one of the bot's messages. */
+type CallbackQuery = {
+  id: string;
+  from: { id: number };
+  data?: string;
+  message?: { message_id: number; chat: { id: number }; text?: string };
+};
+
+export type MiniApp = "wallet" | "nutrition" | "tasks";
+
+type CallbackButton = { text: string; callback_data: string };
+type WebAppButton = { text: string; web_app: { url: string } };
+type InlineButton = CallbackButton | WebAppButton;
 
 type Update = {
   update_id: number;
   message?: Message;
+  callback_query?: CallbackQuery;
 };
+
+type TaskAction = "done" | "hour" | "tomorrow";
+
+/** Buttons under a task reminder; the bot handles them in handleCallback. */
+export function taskButtons(taskId: string): InlineButton[][] {
+  return [
+    [
+      { text: "✅ Готово", callback_data: `task:done:${taskId}` },
+      { text: "⏰ Через час", callback_data: `task:hour:${taskId}` },
+      { text: "Завтра", callback_data: `task:tomorrow:${taskId}` },
+    ],
+  ];
+}
 
 const POLL_TIMEOUT_SECONDS = 30;
 const RETRY_DELAY_MS = 5000;
 const START_COMMAND = /^\/start(?:@[A-Za-z0-9_]+)?(?:\s|$)/;
+const HELP_COMMAND = /^\/help(?:@[A-Za-z0-9_]+)?(?:\s|$)/;
 const ACCESS_COMMAND = /^\/(access|revoke)(?:@[A-Za-z0-9_]+)?(?:\s+(\S+))?\s*$/;
 const TELEGRAM_ID = /^[1-9]\d{0,15}$/;
+const TASK_CALLBACK = /^task:(done|hour|tomorrow):([0-9a-f-]{36})$/;
 const WELCOME_TEXT = "Ваши личные приложения. Выберите, что открыть.";
+const HELP_WALLET_LINE = "💳 Кошелёк: счета, расходы и доходы, бюджеты, статистика по месяцам.";
+const HELP_NUTRITION_LINE =
+  "🥗 Питание: дневник еды по тексту или фото, калории и БЖУ, тренировки, история.";
+const HELP_TASKS_LINE = "📝 Задачи: список дел, заметки и напоминания, в том числе повторяющиеся.";
+const HELP_VOICE_TEXT = [
+  "🎙 Голосовые сообщения: самый быстрый способ что-то записать. Просто отправьте голосовое:",
+  "• «Запиши расход 45000 сум за обед»: расход в кошелёк",
+  "• «Получил зарплату 5 миллионов»: доход в кошелёк",
+  "• «Запиши тренировку, сожжено 420 калорий»: тренировка в питание",
+  "• «Напомни завтра в 10 позвонить в банк»: задача с напоминанием",
+  "• «Каждый понедельник в 9 напоминай про отчёт»: повторяющееся напоминание",
+  "Бот сам разберёт сообщение и ответит, что записал.",
+].join("\n");
+const HELP_REMINDERS_TEXT = [
+  "🔔 Если забудете внести еду или расходы, бот напомнит днём и вечером.",
+  "О задачах бот напомнит в назначенное время: отметьте «Готово» или отложите кнопкой.",
+].join("\n");
+const HELP_ADMIN_TEXT = [
+  "🔑 Администратору:",
+  "/access 123456789: открыть доступ человеку",
+  "/access: кто сейчас в списке",
+  "/revoke 123456789: закрыть доступ",
+].join("\n");
 const ACCESS_USAGE_TEXT = "Укажите Telegram id числом, например: /access 123456789";
 const REVOKE_USAGE_TEXT = "Укажите Telegram id числом, например: /revoke 123456789";
 const ACCESS_NONE_TEXT = "Доступ пока никому не выдан. Чтобы открыть: /access 123456789";
 const ACCESS_GRANTED_TEXT = "Вам открыт доступ. Нажмите /start, чтобы начать.";
 const VOICE_ACCEPTED_TEXT = "Принято в обработку…";
 const VOICE_RECOGNIZING_TEXT = "Распознаём голос…";
-const VOICE_PARSING_TEXT = "Определяем сумму и категорию…";
+const VOICE_PARSING_TEXT = "Разбираем сообщение…";
 const VOICE_FAILED_STATUS = "Не удалось распознать";
 const VOICE_FAILED_TEXT = "Не удалось обработать сообщение. Попробуйте ещё раз";
 const VOICE_TOO_LONG_TEXT = "Сообщение слишком длинное. Запишите короче, до двух минут";
+const TASK_GONE_TEXT = "Задача уже удалена";
+const TASK_FAILED_TEXT = "Не получилось. Попробуйте ещё раз";
+const SNOOZE_HOURS = 1;
 // A spoken note about one expense is a few seconds; this keeps a mistaken long recording cheap.
 const MAX_VOICE_SECONDS = 120;
 const MAX_VOICE_BYTES = 5 * 1024 * 1024;
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 
 /**
- * Long-polls Telegram. People with access get Mini App buttons on /start, and a voice message
- * is turned into a wallet operation (see VoiceTransactionService). The administrator also
- * manages access with /access and /revoke. Everyone else gets no reply at all.
+ * Long-polls Telegram. People with access get Mini App buttons on /start, a voice message is
+ * turned into a wallet operation, a workout or a task (see VoiceTransactionService), and task
+ * reminders have buttons. The administrator also manages access with /access and /revoke.
+ * Everyone else gets no reply at all.
  */
 @Injectable()
 export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestroy {
@@ -67,34 +125,46 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
     @Inject(CONFIG) private readonly config: AppConfig,
     private readonly voice: VoiceTransactionService,
     private readonly access: AccessService,
+    private readonly tasks: TasksService,
   ) {}
 
   async onApplicationBootstrap() {
     if (this.config.dev && !this.config.botInDev) {
       return;
     }
+
     await this.call("deleteWebhook", { drop_pending_updates: false });
+
     this.task = this.poll();
     this.logger.log("Telegram bot started in polling mode");
   }
 
   async onModuleDestroy() {
     this.stop.abort();
+
     await this.task;
   }
 
   /** Handles one update. Each update is answered at most once, even after restarts. */
   async handleUpdate(update: Update) {
+    if (update.callback_query) {
+      await this.handleCallback(update.update_id, update.callback_query);
+      return;
+    }
+
     const message = update.message;
     if (!message || !this.isPrivateChat(message)) {
       return;
     }
+
     const isStart = START_COMMAND.test(message.text || "");
+    const isHelp = HELP_COMMAND.test(message.text || "");
     const accessCommand = ACCESS_COMMAND.exec(message.text || "");
     const speech = message.voice ?? message.audio;
-    if (!isStart && !accessCommand && !speech) {
+    if (!isStart && !isHelp && !accessCommand && !speech) {
       return;
     }
+
     const sender = BigInt(message.from!.id);
     const isAdmin = this.access.isAdmin(sender);
     // Strangers, and anyone but the administrator sending /access, get no answer at all.
@@ -112,6 +182,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
       await this.handleAccessCommand(message.chat.id, accessCommand[1], accessCommand[2]);
       return;
     }
+
     if (speech) {
       // Not retried after a failure: the operation may already be written.
       await this.handleSpeech(message, speech, update.update_id);
@@ -121,7 +192,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
     try {
       await this.call("sendMessage", {
         chat_id: message.chat.id,
-        text: WELCOME_TEXT,
+        text: isHelp ? this.helpText(isAdmin) : WELCOME_TEXT,
         disable_notification: true,
         reply_markup: { inline_keyboard: this.appButtons() },
       });
@@ -132,6 +203,23 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
     }
   }
 
+  /** What the bot can do; only the apps that are deployed are listed. */
+  private helpText(isAdmin: boolean) {
+    const apps = [
+      this.config.miniAppUrl && HELP_WALLET_LINE,
+      this.config.nutritionAppUrl && HELP_NUTRITION_LINE,
+      this.config.tasksAppUrl && HELP_TASKS_LINE,
+    ].filter(Boolean);
+
+    const sections = ["Что умеет бот.\n" + apps.join("\n"), HELP_VOICE_TEXT, HELP_REMINDERS_TEXT];
+
+    if (isAdmin) {
+      sections.push(HELP_ADMIN_TEXT);
+    }
+
+    return sections.join("\n\n");
+  }
+
   /** /access lists, grants and /revoke takes away a user's access. Only the administrator gets here. */
   private async handleAccessCommand(chatId: number, command: string, argument?: string) {
     if (!argument) {
@@ -140,8 +228,10 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
         command === "access" ? await this.accessList() : REVOKE_USAGE_TEXT,
         true,
       );
+
       return;
     }
+
     if (!TELEGRAM_ID.test(argument)) {
       await this.send(chatId, command === "access" ? ACCESS_USAGE_TEXT : REVOKE_USAGE_TEXT, true);
       return;
@@ -150,21 +240,25 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
     const telegramId = BigInt(argument);
     if (command === "access") {
       const granted = await this.access.grant(telegramId);
+
       await this.send(
         chatId,
         granted ? `Доступ выдан: ${argument}` : `У ${argument} уже есть доступ`,
         true,
       );
+
       if (granted) {
         // Works only if they have already opened the bot; otherwise Telegram refuses.
         await this.send(Number(telegramId), ACCESS_GRANTED_TEXT, false);
       }
       return;
     }
+
     if (this.access.isAdmin(telegramId)) {
       await this.send(chatId, "Свой доступ отозвать нельзя", true);
       return;
     }
+
     const revoked = await this.access.revoke(telegramId);
     await this.send(
       chatId,
@@ -202,7 +296,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
       if (statusId) {
         await show(VOICE_FAILED_STATUS);
       }
-      await this.send(chatId, `${reason}\nОперация не записана.`, false);
+      await this.send(chatId, `${reason}\nНичего не записано.`, false);
     };
 
     if (!this.voice.enabled) {
@@ -276,21 +370,114 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
     }
   }
 
-  /** Sends a message to a user's private chat (its id is the user's Telegram id). */
-  async sendTo(telegramId: bigint, text: string, options: { silent: boolean; apps?: MiniApp[] }) {
+  /**
+   * Sends a message to a user's private chat (its id is the user's Telegram id). `buttons`
+   * go first, then a button for each of `apps`.
+   */
+  async sendTo(
+    telegramId: bigint,
+    text: string,
+    options: { silent: boolean; apps?: MiniApp[]; buttons?: InlineButton[][] },
+  ) {
+    const keyboard = [
+      ...(options.buttons ?? []),
+      ...(options.apps ? this.appButtons(options.apps) : []),
+    ];
+
     await this.call("sendMessage", {
       chat_id: Number(telegramId),
       text,
       disable_notification: options.silent,
-      ...(options.apps && { reply_markup: { inline_keyboard: this.appButtons(options.apps) } }),
+      ...(keyboard.length > 0 && { reply_markup: { inline_keyboard: keyboard } }),
     });
   }
 
+  /**
+   * "Готово", "Через час" and "Завтра" under a task reminder. The tap is confirmed with a
+   * short popup, and the message gets the outcome instead of the buttons.
+   */
+  private async handleCallback(updateId: number, query: CallbackQuery) {
+    const sender = BigInt(query.from.id);
+    if (!(await this.access.isAllowed(sender))) {
+      return;
+    }
+
+    const match = TASK_CALLBACK.exec(query.data ?? "");
+    if (!match || !(await this.markProcessed(BigInt(updateId)))) {
+      await this.answerCallback(query.id);
+      return;
+    }
+
+    let outcome: string;
+    try {
+      outcome = await this.runTaskAction(sender, match[1] as TaskAction, match[2]);
+    } catch {
+      this.logger.warn("Task button failed");
+      await this.db.botUpdate.delete({ where: { updateId: BigInt(updateId) } });
+      await this.answerCallback(query.id, TASK_FAILED_TEXT);
+      return;
+    }
+
+    await this.answerCallback(query.id, outcome);
+
+    if (query.message) {
+      await this.call("editMessageText", {
+        chat_id: query.message.chat.id,
+        message_id: query.message.message_id,
+        text: [query.message.text, outcome].filter(Boolean).join("\n\n"),
+        reply_markup: { inline_keyboard: this.appButtons(["tasks"]) },
+      }).catch(() => this.logger.warn("Could not update a task reminder"));
+    }
+  }
+
+  /** Applies a task button and returns what happened, e.g. "⏰ Напомню в 15:30". */
+  private async runTaskAction(sender: bigint, action: TaskAction, taskId: string) {
+    const task = await this.tasks.findForTelegram(sender, taskId);
+    if (!task) {
+      return TASK_GONE_TEXT;
+    }
+
+    const ownerId = task.owner.id;
+    const now = DateTime.now().setZone(task.owner.timezone);
+
+    if (action === "done") {
+      // A repeating task has already moved on to its next date when the reminder was sent.
+      if (task.repeat === "none") {
+        await this.tasks.complete(ownerId, task.id);
+      }
+
+      return "✅ Выполнено";
+    }
+
+    if (action === "hour") {
+      const until = now.plus({ hours: SNOOZE_HOURS });
+      await this.tasks.snooze(ownerId, task.id, until.toJSDate());
+
+      return `⏰ Напомню в ${until.toFormat("HH:mm")}`;
+    }
+
+    const [hour, minute] = task.dueTime
+      ? task.dueTime.split(":").map(Number)
+      : [ALL_DAY_REMIND_HOUR, 0];
+    const until = now.plus({ days: 1 }).set({ hour, minute, second: 0, millisecond: 0 });
+    await this.tasks.snooze(ownerId, task.id, until.toJSDate());
+
+    return `⏰ Напомню завтра в ${until.toFormat("HH:mm")}`;
+  }
+
+  private async answerCallback(queryId: string, text?: string) {
+    await this.call("answerCallbackQuery", {
+      callback_query_id: queryId,
+      ...(text && { text }),
+    }).catch(() => this.logger.warn("Could not answer a button tap"));
+  }
+
   /** One button per deployed mini app (all of them by default), each on its own row. */
-  private appButtons(only: MiniApp[] = ["wallet", "nutrition"]) {
+  private appButtons(only: MiniApp[] = ["wallet", "nutrition", "tasks"]): InlineButton[][] {
     const apps: { id: MiniApp; text: string; url: string }[] = [
       { id: "wallet", text: "💳 Кошелёк", url: this.config.miniAppUrl },
       { id: "nutrition", text: "🥗 Питание", url: this.config.nutritionAppUrl },
+      { id: "tasks", text: "📝 Задачи", url: this.config.tasksAppUrl },
     ];
     return apps
       .filter((app) => app.url && only.includes(app.id))
@@ -304,7 +491,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
         const updates = await this.call<Update[]>("getUpdates", {
           offset,
           timeout: POLL_TIMEOUT_SECONDS,
-          allowed_updates: ["message"],
+          allowed_updates: ["message", "callback_query"],
         });
         for (const update of updates) {
           if (this.stop.signal.aborted) {

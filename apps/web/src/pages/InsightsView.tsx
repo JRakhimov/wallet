@@ -3,8 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import { DateTime } from "luxon";
 import { request } from "@ui/lib/api-client";
 import { money } from "@ui/lib/format";
-import { Insights } from "../api";
+import { Insights, Subscription } from "../api";
 import { CategoryIcon } from "../components/CategoryIcon";
+import { monthlyTotal } from "../lib/subscriptions";
 
 const RECENT_LABELS = ["Сегодня", "Вчера", "Позавчера"];
 
@@ -59,9 +60,52 @@ export function InsightsView({ month }: { month: string }) {
       <Weeks weeks={insights.weeks} />
       <Weekdays weekdays={insights.weekdays} />
       <Trends trends={insights.trends} />
+      <SubscriptionsCost />
       <Facts facts={insights.facts} />
     </>
   );
+}
+
+/** What the monthly subscriptions cost in total; hidden when there are none. */
+function SubscriptionsCost() {
+  const subscriptionsQ = useQuery({
+    queryKey: ["subscriptions"],
+    queryFn: () => request<Subscription[]>("/subscriptions"),
+  });
+  const subscriptions = subscriptionsQ.data ?? [];
+
+  if (subscriptions.length === 0) {
+    return null;
+  }
+
+  return (
+    <Section title="Подписки">
+      <div className="card insight-card">
+        <div className="insight-row">
+          <span className="insight-label">В месяц</span>
+          <strong>{money(monthlyTotal(subscriptions))} сум</strong>
+        </div>
+        <p className="insight-note">
+          {subscriptions.length} {subscriptionsWord(subscriptions.length)}, списываются каждый месяц
+        </p>
+      </div>
+    </Section>
+  );
+}
+
+/** "подписка" / "подписки" / "подписок" for a count. */
+function subscriptionsWord(count: number) {
+  const lastTwo = count % 100;
+  const last = count % 10;
+
+  if (lastTwo >= 11 && lastTwo <= 14) {
+    return "подписок";
+  }
+  if (last === 1) {
+    return "подписка";
+  }
+
+  return last >= 2 && last <= 4 ? "подписки" : "подписок";
 }
 
 function RecentDays({ recent }: { recent: Insights["recent"] }) {

@@ -8,7 +8,7 @@ import {
   CreditCard,
   Delete,
   Download,
-  LogOut,
+  Repeat,
   Settings2,
   Shapes,
 } from "lucide-react";
@@ -20,17 +20,17 @@ import { request } from "@ui/lib/api-client";
 import { OperationRow } from "../components/OperationRow";
 import { Sheet, SheetPresence } from "@ui/components/Sheet";
 import { monthLabel } from "@ui/lib/format";
-import { closeTelegramApp, openedInTelegram } from "@ui/lib/telegram";
 import { useRefresh } from "../lib/useRefresh";
 import { AccountsPanel } from "../panels/AccountsPanel";
 import { BudgetPanel } from "../panels/BudgetPanel";
 import { CategoriesPanel } from "../panels/CategoriesPanel";
 import { EntryPanel } from "../panels/EntryPanel";
 import { OperationPanel } from "../panels/OperationPanel";
+import { SubscriptionsPanel } from "../panels/SubscriptionsPanel";
 
 type EntryType = "income" | "transfer" | "adjustment";
 export type MoreSheet =
-  | { kind: "accounts" | "categories" | "budget" | "trash" }
+  | { kind: "accounts" | "categories" | "budget" | "subscriptions" | "trash" }
   | { kind: "entry"; type: EntryType }
   | { kind: "operation"; operation: Operation };
 
@@ -39,6 +39,7 @@ const sheetTitles: Record<MoreSheet["kind"], string> = {
   accounts: "Счета",
   categories: "Категории",
   budget: "Бюджет",
+  subscriptions: "Подписки",
   trash: "Удалённые операции",
   operation: "Операция",
 };
@@ -129,13 +130,15 @@ export function MorePage({
           onClick={() => setSheet({ kind: "budget" })}
         />
         <MenuRow
+          Icon={Repeat}
+          label="Подписки"
+          onClick={() => setSheet({ kind: "subscriptions" })}
+        />
+        <MenuRow
           Icon={Delete}
           label="Недавно удалённые"
           onClick={() => setSheet({ kind: "trash" })}
         />
-        {openedInTelegram() && (
-          <MenuRow Icon={LogOut} label="Закрыть приложение" onClick={closeTelegramApp} />
-        )}
       </div>
       <ThemeSelect value={owner.theme} onError={setError} />
       <button
@@ -151,7 +154,7 @@ export function MorePage({
           {error}
         </p>
       )}
-      <p className="timezone">UZS · {owner.timezone}</p>
+      <p className="timezone">UZS, USD · {owner.timezone}</p>
       <SheetPresence>
         {sheet && (
           <Sheet title={sheetTitles[sheet.kind]} onClose={close}>
@@ -165,6 +168,7 @@ export function MorePage({
             {sheet.kind === "budget" && (
               <BudgetPanel month={month} amount={summary.budget} refresh={refresh} />
             )}
+            {sheet.kind === "subscriptions" && <SubscriptionsPanel />}
             {sheet.kind === "entry" && (
               <EntryPanel
                 type={sheet.type}

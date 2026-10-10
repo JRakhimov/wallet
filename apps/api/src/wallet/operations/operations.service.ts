@@ -9,6 +9,7 @@ import { sha256 } from "../../common/utils/hash";
 import { currentMonth, monthRange } from "../../common/utils/month";
 import { OwnerService } from "../../owner/owner.service";
 import { PrismaService } from "../../prisma/prisma.service";
+import { convertAtRate } from "../currency";
 import { OperationDto, OperationFilterDto, OperationQueryDto } from "./dto/operation.dto";
 import { decimal, DetailedOperation, operationInclude, operationView, sum } from "./operation.view";
 
@@ -20,6 +21,8 @@ type LedgerEntry = { accountId: string; amount: Prisma.Decimal };
 type PreparedOperation = {
   amount: Prisma.Decimal;
   currency: string;
+  /** Exchange rate of a transfer between currencies; null for everything else. */
+  rate: Prisma.Decimal | null;
   categoryId: string | null;
   parentId: string | null;
   entries: LedgerEntry[];
@@ -92,6 +95,7 @@ export class OperationsService {
           kind: input.kind,
           amount: prepared.amount,
           currency: prepared.currency,
+          rate: prepared.rate,
           categoryId: prepared.categoryId,
           parentId: prepared.parentId,
           note: input.note,
@@ -125,6 +129,8 @@ export class OperationsService {
         where: { id },
         data: {
           amount: prepared.amount,
+          currency: prepared.currency,
+          rate: prepared.rate,
           categoryId: prepared.categoryId,
           parentId: prepared.parentId,
           note: input.note,
@@ -268,21 +274,37 @@ export class OperationsService {
       throw new BadRequestException("Выберите другой счёт получателя");
     }
     const target = await tx.account.findFirst({
-      where: { id: input.targetAccountId, ownerId, archived: false, currency: account.currency },
+      where: { id: input.targetAccountId, ownerId, archived: false },
     });
     if (!target) {
       throw new BadRequestException("Счёт получателя недоступен");
     }
 
     const amount = decimal(input.amount);
+    const sameCurrency = target.currency === account.currency;
+    if (sameCurrency && input.rate) {
+      throw new BadRequestException("Курс нужен только при переводе между разными валютами");
+    }
+    if (!sameCurrency && !input.rate) {
+      throw new BadRequestException("Укажите курс обмена");
+    }
+
+    const rate = input.rate ? decimal(input.rate) : null;
+    // The target account is credited in its own currency.
+    const credited = rate ? convertAtRate(amount, account.currency, rate) : amount;
+    if (credited.isZero()) {
+      throw new BadRequestException("Сумма слишком мала для этого курса");
+    }
+
     return {
       amount,
       currency: account.currency,
+      rate,
       categoryId: null,
       parentId: null,
       entries: [
         { accountId: account.id, amount: amount.negated() },
-        { accountId: target.id, amount },
+        { accountId: target.id, amount: credited },
       ],
     };
   }
@@ -304,6 +326,10 @@ export class OperationsService {
       throw new BadRequestException("Исходная покупка не найдена");
     }
 
+    if (parent.currency !== account.currency) {
+      throw new BadRequestException("Возврат нужно зачислить на счёт в валюте покупки");
+    }
+
     const otherRefunds = await tx.operation.findMany({
       where: {
         parentId: parent.id,
@@ -323,6 +349,7 @@ export class OperationsService {
     return {
       amount,
       currency: account.currency,
+      rate: null,
       categoryId: parent.categoryId,
       parentId: parent.id,
       entries: [{ accountId: account.id, amount }],
@@ -349,6 +376,7 @@ export class OperationsService {
     return {
       amount,
       currency: account.currency,
+      rate: null,
       categoryId: category.id,
       parentId: null,
       entries: [
@@ -366,6 +394,7 @@ function prepareAdjustment(input: OperationDto, account: Account): PreparedOpera
   return {
     amount,
     currency: account.currency,
+    rate: null,
     categoryId: null,
     parentId: null,
     entries: [

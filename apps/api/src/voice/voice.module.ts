@@ -2,6 +2,7 @@ import { Logger, Module } from "@nestjs/common";
 import { AppConfig, CONFIG } from "../config/app-config";
 import { WorkoutsModule } from "../nutrition/workouts/workouts.module";
 import { OwnerModule } from "../owner/owner.module";
+import { TasksModule } from "../tasks/tasks.module";
 import { AccountsModule } from "../wallet/accounts/accounts.module";
 import { CategoriesModule } from "../wallet/categories/categories.module";
 import { OperationsModule } from "../wallet/operations/operations.module";
@@ -21,7 +22,14 @@ function voiceConfig(config: AppConfig) {
  * behind SPEECH_TO_TEXT and TRANSACTION_PARSER.
  */
 @Module({
-  imports: [OwnerModule, AccountsModule, CategoriesModule, OperationsModule, WorkoutsModule],
+  imports: [
+    OwnerModule,
+    AccountsModule,
+    CategoriesModule,
+    OperationsModule,
+    WorkoutsModule,
+    TasksModule,
+  ],
   providers: [
     {
       provide: SPEECH_TO_TEXT,

@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import { readConfig } from "../src/config/app-config";
 import { AccessService } from "../src/access/access.service";
 import { PrismaService } from "../src/prisma/prisma.service";
+import { TasksService } from "../src/tasks/tasks.service";
 import { TelegramBotService } from "../src/telegram/telegram-bot.service";
 import { VoiceError, VoiceTransactionService } from "../src/voice/voice-transaction.service";
 
@@ -21,6 +22,7 @@ const update = {
   message: { text: "/start", from: { id: 123 }, chat: { id: 123, type: "private" } },
 };
 const noVoice = { enabled: false } as unknown as VoiceTransactionService;
+const noTasks = {} as unknown as TasksService;
 const ADMIN_ID = 123n;
 /** In-memory stand-in for AccessService: 123 is the administrator, `granted` holds the rest. */
 function accessControl(granted: bigint[] = []) {
@@ -75,7 +77,13 @@ test("polling deletes webhook, acknowledges processed updates and aborts on shut
     }
     return Response.json({ ok: true, result: method === "getUpdates" ? [update] : true });
   });
-  const bot = new TelegramBotService(db as unknown as PrismaService, config, noVoice, access);
+  const bot = new TelegramBotService(
+    db as unknown as PrismaService,
+    config,
+    noVoice,
+    access,
+    noTasks,
+  );
   try {
     await bot.onApplicationBootstrap();
     await blocked;
@@ -85,7 +93,7 @@ test("polling deletes webhook, acknowledges processed updates and aborts on shut
     );
     assert.equal(calls[0].body.drop_pending_updates, false);
     assert.equal(calls[3].body.offset, 43);
-    assert.deepEqual(calls[1].body.allowed_updates, ["message"]);
+    assert.deepEqual(calls[1].body.allowed_updates, ["message", "callback_query"]);
   } finally {
     await bot.onModuleDestroy();
   }
@@ -99,7 +107,13 @@ test("only owner /start is answered; duplicates are ignored and failed sends can
     sends++;
     return Response.json({ ok: !fail, result: true });
   });
-  const bot = new TelegramBotService(db as unknown as PrismaService, config, noVoice, access);
+  const bot = new TelegramBotService(
+    db as unknown as PrismaService,
+    config,
+    noVoice,
+    access,
+    noTasks,
+  );
   await bot.handleUpdate({ ...update, message: { ...update.message, from: { id: 999 } } });
   await bot.handleUpdate({
     ...update,
@@ -124,6 +138,7 @@ test("local development does not start the Telegram bot", async (t) => {
     { ...config, dev: true },
     noVoice,
     access,
+    noTasks,
   );
   await bot.onApplicationBootstrap();
   await bot.onModuleDestroy();
@@ -142,6 +157,7 @@ test("/start shows a button for every deployed mini app", async (t) => {
     config,
     noVoice,
     access,
+    noTasks,
   ).handleUpdate(update);
   const withNutrition = { ...config, nutritionAppUrl: "https://nutrition.example" };
   await new TelegramBotService(
@@ -149,6 +165,7 @@ test("/start shows a button for every deployed mini app", async (t) => {
     withNutrition,
     noVoice,
     access,
+    noTasks,
   ).handleUpdate(update);
 
   assert.deepEqual(keyboards, [
@@ -212,7 +229,13 @@ test("a voice message is acknowledged, recorded once and the result is sent back
       return "Расход 45 000 сум за обед записан";
     },
   } as unknown as VoiceTransactionService;
-  const bot = new TelegramBotService(database() as unknown as PrismaService, config, voice, access);
+  const bot = new TelegramBotService(
+    database() as unknown as PrismaService,
+    config,
+    voice,
+    access,
+    noTasks,
+  );
 
   await bot.handleUpdate(voiceUpdate);
   await bot.handleUpdate(voiceUpdate);
@@ -220,7 +243,7 @@ test("a voice message is acknowledged, recorded once and the result is sent back
   assert.deepEqual(sent, ["Принято в обработку…"]);
   assert.deepEqual(edited, [
     "Распознаём голос…",
-    "Определяем сумму и категорию…",
+    "Разбираем сообщение…",
     "Расход 45 000 сум за обед записан",
   ]);
   assert.deepEqual(silent, [true]);
@@ -235,11 +258,17 @@ test("voice failures are reported in the chat; strangers and long recordings are
       throw new VoiceError("Не понял");
     },
   } as unknown as VoiceTransactionService;
-  const bot = new TelegramBotService(database() as unknown as PrismaService, config, voice, access);
+  const bot = new TelegramBotService(
+    database() as unknown as PrismaService,
+    config,
+    voice,
+    access,
+    noTasks,
+  );
 
   await bot.handleUpdate(voiceUpdate);
   // The status turns into "failed", and the reason arrives as a separate message with sound.
-  assert.deepEqual(sent, ["Принято в обработку…", "Не понял\nОперация не записана."]);
+  assert.deepEqual(sent, ["Принято в обработку…", "Не понял\nНичего не записано."]);
   assert.deepEqual(edited, ["Распознаём голос…", "Не удалось распознать"]);
   assert.deepEqual(silent, [true, false]);
 
@@ -249,7 +278,7 @@ test("voice failures are reported in the chat; strangers and long recordings are
     message: { ...voiceUpdate.message, voice: { file_id: "x", duration: 600 } },
   });
   assert.deepEqual(sent, [
-    "Сообщение слишком длинное. Запишите короче, до двух минут\nОперация не записана.",
+    "Сообщение слишком длинное. Запишите короче, до двух минут\nНичего не записано.",
   ]);
 
   sent.length = 0;
@@ -267,31 +296,37 @@ test("voice commands report that they are not configured", async (t) => {
     config,
     noVoice,
     access,
+    noTasks,
   );
   await bot.handleUpdate(voiceUpdate);
-  assert.deepEqual(sent, ["Голосовые команды не настроены на сервере.\nОперация не записана."]);
+  assert.deepEqual(sent, ["Голосовые команды не настроены на сервере.\nНичего не записано."]);
 });
 
 function accessFixture(t: TestContext) {
   const sent: { chat: number; text: string }[] = [];
+
   t.mock.method(globalThis, "fetch", async (_url: string, options: RequestInit) => {
     const body = JSON.parse(String(options.body));
     sent.push({ chat: body.chat_id, text: body.text });
     return Response.json({ ok: true, result: { message_id: 1 } });
   });
+
   const control = accessControl();
   const bot = new TelegramBotService(
     database() as unknown as PrismaService,
     config,
     noVoice,
     control as unknown as AccessService,
+    noTasks,
   );
+
   let updateId = 100;
   const say = (from: number, text: string) =>
     bot.handleUpdate({
       update_id: updateId++,
       message: { text, from: { id: from }, chat: { id: from, type: "private" } },
     });
+
   return { sent, control, say };
 }
 
@@ -316,6 +351,7 @@ test("the administrator grants and revokes access with commands", async (t) => {
   assert.ok(control.list.has(555n));
 
   sent.length = 0;
+
   await say(123, "/access");
   await say(123, "/revoke 555");
   await say(123, "/revoke 123");
@@ -334,10 +370,129 @@ test("strangers get no reply, and access commands work only for the administrato
   await say(999, "/access 999");
   await say(555, "/access 999");
   await say(555, "/revoke 555");
+
   assert.equal(sent.length, 0);
   assert.deepEqual([...control.list], [555n]);
 
   await say(555, "/start");
+
   assert.equal(sent.length, 1);
   assert.equal(sent[0].chat, 555);
+});
+
+test("/help explains the bot to allowed users and adds the access commands for the administrator", async (t) => {
+  const { sent, control, say } = accessFixture(t);
+  control.list.add(555n);
+
+  await say(555, "/help");
+  await say(123, "/help");
+  await say(999, "/help");
+
+  assert.equal(sent.length, 2);
+  assert.equal(sent[0].chat, 555);
+  assert.match(sent[0].text, /Голосовые сообщения/);
+  assert.match(sent[0].text, /Кошелёк/);
+  assert.doesNotMatch(sent[0].text, /\/access/);
+  assert.match(sent[1].text, /\/access/);
+});
+
+const TASK_ID = "11111111-1111-4111-8111-111111111111";
+
+function callbackUpdate(updateId: number, data: string, from = 123) {
+  return {
+    update_id: updateId,
+    callback_query: {
+      id: `q${updateId}`,
+      from: { id: from },
+      data,
+      message: { message_id: 900, chat: { id: from }, text: "🔔 Позвонить в банк" },
+    },
+  };
+}
+
+function taskButtonsFixture(t: TestContext, repeat = "none") {
+  const calls: { method: string; body: Record<string, unknown> }[] = [];
+  const completed: string[] = [];
+  const snoozed: Date[] = [];
+
+  t.mock.method(globalThis, "fetch", async (url: string, options: RequestInit) => {
+    calls.push({ method: url.split("/").at(-1)!, body: JSON.parse(String(options.body)) });
+    return Response.json({ ok: true, result: true });
+  });
+
+  const tasks = {
+    async findForTelegram(telegramId: bigint, id: string) {
+      if (telegramId !== 123n || id !== TASK_ID) {
+        return null;
+      }
+
+      return {
+        id,
+        repeat,
+        dueTime: "10:00",
+        owner: { id: "owner", timezone: "Asia/Tashkent" },
+      };
+    },
+    async complete(_owner: string, id: string) {
+      completed.push(id);
+    },
+    async snooze(_owner: string, _id: string, until: Date) {
+      snoozed.push(until);
+    },
+  } as unknown as TasksService;
+
+  const bot = new TelegramBotService(
+    database() as unknown as PrismaService,
+    { ...config, tasksAppUrl: "https://tasks.example" },
+    noVoice,
+    access,
+    tasks,
+  );
+
+  return { bot, calls, completed, snoozed };
+}
+
+test("the Done button completes a one-off task once and replaces the buttons", async (t) => {
+  const { bot, calls, completed } = taskButtonsFixture(t);
+
+  await bot.handleUpdate(callbackUpdate(500, `task:done:${TASK_ID}`));
+  await bot.handleUpdate(callbackUpdate(500, `task:done:${TASK_ID}`));
+
+  assert.deepEqual(completed, [TASK_ID]);
+  assert.deepEqual(
+    calls.map((call) => call.method),
+    ["answerCallbackQuery", "editMessageText", "answerCallbackQuery"],
+  );
+  assert.equal(calls[0].body.text, "✅ Выполнено");
+  assert.equal(calls[1].body.text, "🔔 Позвонить в банк\n\n✅ Выполнено");
+  assert.deepEqual(calls[1].body.reply_markup, {
+    inline_keyboard: [[{ text: "📝 Задачи", web_app: { url: "https://tasks.example" } }]],
+  });
+});
+
+test("a repeating task is not completed again; snooze buttons put the reminder off", async (t) => {
+  const { bot, calls, completed, snoozed } = taskButtonsFixture(t, "daily");
+
+  await bot.handleUpdate(callbackUpdate(501, `task:done:${TASK_ID}`));
+  await bot.handleUpdate(callbackUpdate(502, `task:hour:${TASK_ID}`));
+  await bot.handleUpdate(callbackUpdate(503, `task:tomorrow:${TASK_ID}`));
+
+  assert.deepEqual(completed, []);
+  assert.equal(snoozed.length, 2);
+
+  const inAnHour = Date.now() + 60 * 60 * 1000;
+  assert.ok(Math.abs(snoozed[0].getTime() - inAnHour) < 5000);
+  assert.match(String(calls[2].body.text), /^⏰ Напомню в \d{2}:\d{2}$/);
+  assert.equal(calls[4].body.text, "⏰ Напомню завтра в 10:00");
+});
+
+test("strangers' taps are ignored and someone else's task is not found", async (t) => {
+  const { bot, calls, completed } = taskButtonsFixture(t);
+
+  await bot.handleUpdate(callbackUpdate(510, `task:done:${TASK_ID}`, 999));
+  assert.equal(calls.length, 0);
+
+  await bot.handleUpdate(callbackUpdate(511, "task:done:22222222-2222-4222-8222-222222222222"));
+  assert.deepEqual(completed, []);
+  assert.equal(calls[0].body.text, "Задача уже удалена");
 });

@@ -6,6 +6,7 @@ import { HealthModule } from "./health/health.module";
 import { NutritionModule } from "./nutrition/nutrition.module";
 import { OwnerModule } from "./owner/owner.module";
 import { PrismaModule } from "./prisma/prisma.module";
+import { TasksModule } from "./tasks/tasks.module";
 import { TelegramModule } from "./telegram/telegram.module";
 import { WalletModule } from "./wallet/wallet.module";
 
@@ -23,6 +24,7 @@ export class AppModule {
         TelegramModule,
         WalletModule,
         NutritionModule,
+        TasksModule,
       ],
     };
   }

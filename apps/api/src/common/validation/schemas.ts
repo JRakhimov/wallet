@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const MONEY = /^(0|[1-9]\d{0,11})(\.\d{1,2})?$/;
 const SIGNED_MONEY = /^-?(0|[1-9]\d{0,11})(\.\d{1,2})?$/;
+const RATE = /^(0|[1-9]\d{0,9})(\.\d{1,6})?$/;
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 export const uuid = z.string().uuid();
@@ -16,6 +17,12 @@ export const positiveMoney = money.refine(
   (value) => /[1-9]/.test(value),
   "Сумма должна быть больше нуля",
 );
+
+/** Exchange rate: up to 10 integer and 6 fraction digits. */
+export const rate = z
+  .string()
+  .regex(RATE, "Введите курс числом, до 6 знаков после запятой")
+  .refine((value) => /[1-9]/.test(value), "Курс должен быть больше нуля");
 
 export const signedMoney = z.string().regex(SIGNED_MONEY);
 

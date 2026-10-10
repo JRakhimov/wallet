@@ -2,14 +2,14 @@ import { ArrowDownLeft, ArrowUpRight, CreditCard, PiggyBank, Wallet } from "luci
 import { Account, Category } from "../api";
 import { categoryIcon } from "./category-icons";
 import { SelectChoice } from "@ui/components/SelectField";
-import { money } from "@ui/lib/format";
+import { formatMoney } from "@ui/lib/format";
 
 export const icon = (name: string) => categoryIcon(name).Icon;
 export const accountChoices = (accounts: Account[]): SelectChoice[] =>
   accounts.map((account) => ({
     value: account.id,
     label: account.name,
-    detail: `${money(account.balance)} сум`,
+    detail: formatMoney(account.balance, account.currency),
     Icon: account.kind === "cash" ? Wallet : account.kind === "savings" ? PiggyBank : CreditCard,
   }));
 export const categoryChoices = (categories: Category[]): SelectChoice[] =>
@@ -26,4 +26,9 @@ export const accountKindChoices: SelectChoice[] = [
 export const categoryKindChoices: SelectChoice[] = [
   { value: "expense", label: "Расходов", Icon: ArrowUpRight },
   { value: "income", label: "Доходов", Icon: ArrowDownLeft },
+];
+
+export const currencyChoices: SelectChoice[] = [
+  { value: "UZS", label: "Сум" },
+  { value: "USD", label: "Доллар ($)" },
 ];

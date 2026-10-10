@@ -21,6 +21,7 @@ export class AccessService {
     if (this.isAdmin(telegramId)) {
       return true;
     }
+
     return (await this.db.accessGrant.findUnique({ where: { telegramId } })) !== null;
   }
 
@@ -35,7 +36,9 @@ export class AccessService {
     if (await this.isAllowed(telegramId)) {
       return false;
     }
+
     await this.db.accessGrant.create({ data: { telegramId } });
+
     return true;
   }
 
@@ -44,8 +47,11 @@ export class AccessService {
     if (this.isAdmin(telegramId)) {
       return false;
     }
+
     const { count } = await this.db.accessGrant.deleteMany({ where: { telegramId } });
+    // Sessions die with the access, so the person is signed out at once.
     await this.db.session.deleteMany({ where: { owner: { telegramId } } });
+
     return count > 0;
   }
 }

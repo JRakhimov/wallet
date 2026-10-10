@@ -1,7 +1,7 @@
 import { ArrowDownLeft, ArrowRightLeft, ArrowUpRight, Settings2 } from "lucide-react";
 import { DateTime } from "luxon";
 import { Operation } from "../api";
-import { money } from "@ui/lib/format";
+import { currencyUnit, money } from "@ui/lib/format";
 
 export function OperationRow({
   op,
@@ -58,7 +58,7 @@ export function OperationRow({
       <span className="operation-side">
         <span className={"operation-amount " + (sign === "+" ? "positive" : "")}>
           {sign}
-          {money(op.amount)} <small>сум</small>
+          {money(op.amount, op.currency === "USD")} <small>{currencyUnit(op.currency)}</small>
         </span>
         <time className="operation-time" dateTime={op.occurredAt}>
           {time}

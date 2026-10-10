@@ -5,6 +5,13 @@ export const money = (value: string | number, decimals = false) =>
     minimumFractionDigits: decimals ? 2 : 0,
     maximumFractionDigits: 2,
   }).format(Number(value));
+/** What an amount in a currency is called on screen: "сум" or "$". */
+export const currencyUnit = (currency: string) => (currency === "USD" ? "$" : "сум");
+
+/** "1 300 000 сум", "12,50 $": dollars always show cents. */
+export const formatMoney = (value: string | number, currency: string) =>
+  `${money(value, currency === "USD")} ${currencyUnit(currency)}`;
+
 /** Plain API amount from user input: "1 300,5" → "1300.5", "5." → "5". */
 export const normalizeAmount = (value: string) =>
   value.replace(/\s/g, "").replace(",", ".").replace(/\.$/, "");

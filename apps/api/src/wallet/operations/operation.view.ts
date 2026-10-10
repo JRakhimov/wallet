@@ -21,6 +21,7 @@ export function operationView(operation: DetailedOperation, timezone: string) {
     kind: operation.kind,
     amount: operation.amount.toFixed(2),
     currency: operation.currency,
+    rate: operation.rate?.toString() ?? null,
     category: operation.category,
     note: operation.note,
     occurredAt: operation.occurredAt.toISOString(),
@@ -32,6 +33,7 @@ export function operationView(operation: DetailedOperation, timezone: string) {
     entries: operation.entries.map((entry) => ({
       accountId: entry.accountId,
       accountName: entry.account.name,
+      currency: entry.account.currency,
       amount: entry.amount.toFixed(2),
     })),
   };

@@ -1,0 +1,57 @@
+/*
+ * Yellow theme (tasks). Lightness and saturation of the green theme with an amber hue; the
+ * accent is a little more saturated so it reads as yellow. See docs/PLATFORM.md, section 3.2.
+ */
+:root {
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  color-scheme: light;
+  --bg: #f7f6f2;
+  --surface: #ffffff;
+  --surface-soft: #f3f0e6;
+  --text: #302c20;
+  --muted: #7d796d;
+  --border: #e9e6dc;
+  --accent: #855f00;
+  --accent-soft: #f7edcf;
+  --accent-on: #ffffff;
+  --danger: #b4413b;
+  --scrim: #0b0a0670;
+  --shadow: 0 16px 60px #2b261817;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1d1b15;
+  --surface: #2d2a22;
+  --surface-soft: #3a362a;
+  --text: #f5f3ed;
+  --muted: #bab6ab;
+  --border: #4a463b;
+  --accent: #f2cf6b;
+  --accent-soft: #4d4128;
+  --accent-on: #33290b;
+  --danger: #ffaaa2;
+  --scrim: #0b0a0670;
+  --shadow: 0 18px 55px #0e0c0850;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #1d1b15;
+    --surface: #2d2a22;
+    --surface-soft: #3a362a;
+    --text: #f5f3ed;
+    --muted: #bab6ab;
+    --border: #4a463b;
+    --accent: #f2cf6b;
+    --accent-soft: #4d4128;
+    --accent-on: #33290b;
+    --danger: #ffaaa2;
+    --scrim: #0b0a0670;
+    --shadow: 0 18px 55px #0e0c0850;
+  }
+}

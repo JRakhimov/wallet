@@ -16,6 +16,7 @@ services:
       APP_ORIGIN: ${APP_ORIGIN:-https://wallet.y3110w.com}
       MINI_APP_URL: ${MINI_APP_URL:-${APP_ORIGIN:-https://wallet.y3110w.com}}
       NUTRITION_APP_URL: ${NUTRITION_APP_URL:-}
+      TASKS_APP_URL: ${TASKS_APP_URL:-}
       NUTRITION_LLM_PROVIDER: ${NUTRITION_LLM_PROVIDER:-claude}
       NUTRITION_LLM_MODEL: ${NUTRITION_LLM_MODEL:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -62,6 +63,23 @@ services:
     restart: unless-stopped
     ports:
       - "${NUTRITION_WEB_PORT:-3013}:80"
+    depends_on:
+      - api
+    networks:
+      - default
+      - homelab_net
+
+  tasks-web:
+    build:
+      context: .
+      dockerfile: docker/mini-app.Dockerfile
+      args:
+        APP: tasks-web
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://api-wallet.y3110w.com}
+    container_name: tasks_web
+    restart: unless-stopped
+    ports:
+      - "${TASKS_WEB_PORT:-3014}:80"
     depends_on:
       - api
     networks:

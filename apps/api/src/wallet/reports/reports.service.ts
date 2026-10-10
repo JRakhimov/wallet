@@ -4,6 +4,7 @@ import { DateTime } from "luxon";
 import { decimal, operationInclude } from "../operations/operation.view";
 import { OperationsService } from "../operations/operations.service";
 import { PrismaService } from "../../prisma/prisma.service";
+import { BASE_CURRENCY } from "../currency";
 import { computeInsights, InsightRow, insightsRange } from "./insights";
 import { transactionsCsv } from "./transactions-csv";
 
@@ -22,7 +23,11 @@ export class ReportsService {
       month: requestedMonth,
     });
     const [operations, budget] = await this.db.$transaction([
-      this.db.operation.findMany({ where, include: { category: true } }),
+      // Reports are kept in the base currency; operations on dollar accounts are left out.
+      this.db.operation.findMany({
+        where: { ...where, currency: BASE_CURRENCY },
+        include: { category: true },
+      }),
       this.db.budget.findUnique({ where: { ownerId_month: { ownerId, month } } }),
     ]);
 
@@ -93,6 +98,7 @@ export class ReportsService {
         where: {
           ownerId,
           deletedAt: null,
+          currency: BASE_CURRENCY,
           kind: { in: ["expense", "refund"] },
           occurredAt: insightsRange(month, timezone, now),
         },

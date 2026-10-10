@@ -702,3 +702,10 @@
   border-radius: 6px 6px 2px 2px;
   background: var(--border);
 }
+
+/* Subscriptions: the amount sits between the name and the edit button. */
+.subscription-amount {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

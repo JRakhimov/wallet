@@ -19,12 +19,23 @@ export type Category = {
   favorite: boolean;
   position: number;
 };
-export type Entry = { accountId: string; accountName: string; amount: string };
+/** A monthly subscription: GET /subscriptions. `daysLeft` counts from today to the next charge. */
+export type Subscription = {
+  id: string;
+  name: string;
+  amount: string;
+  chargeDay: number;
+  nextChargeDate: string;
+  daysLeft: number;
+};
+export type Entry = { accountId: string; accountName: string; currency: string; amount: string };
 export type Operation = {
   id: string;
   kind: "expense" | "income" | "transfer" | "adjustment" | "refund" | "opening";
   amount: string;
   currency: string;
+  /** UZS per 1 USD, set only on transfers between accounts in different currencies. */
+  rate: string | null;
   category: Category | null;
   note: string;
   occurredAt: string;
@@ -110,6 +121,8 @@ export type OperationInput = {
   accountId: string;
   categoryId?: string;
   targetAccountId?: string;
+  /** UZS per 1 USD; required only for a transfer between different currencies. */
+  rate?: string;
   parentId?: string;
   direction?: "in" | "out";
   note: string;

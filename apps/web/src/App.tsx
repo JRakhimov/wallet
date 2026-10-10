@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BarChart3, Home, List, MoreHorizontal, Wallet } from "lucide-react";
+import { BarChart3, Home, List, LogOut, MoreHorizontal, Wallet } from "lucide-react";
 import { Account, Category, Summary } from "./api";
 import { AppShell, ShellTab } from "@ui/components/AppShell";
 import { CenterState } from "@ui/components/CenterState";
+import { FloatingButton } from "@ui/components/FloatingButton";
 import { request } from "@ui/lib/api-client";
 import { currentMonth } from "@ui/lib/format";
 import { useOwner } from "@ui/lib/owner";
+import { closeTelegramApp, openedInTelegram } from "@ui/lib/telegram";
 import { useAuth, useSessionExpiry } from "@ui/lib/useAuth";
 import { useThemeSync } from "@ui/lib/useThemeSync";
 import { HistoryPage } from "./pages/HistoryPage";
@@ -63,6 +65,16 @@ export function App() {
     setFeedback("");
     setCategoryFilter(null);
   }
+
+  /** Close button on the "more" tab, only inside Telegram. */
+  function floatingControl() {
+    if (tab === "more" && openedInTelegram()) {
+      return <FloatingButton label="Закрыть приложение" Icon={LogOut} onClick={closeTelegramApp} />;
+    }
+
+    return null;
+  }
+
   if (auth.status === "loading") {
     return <CenterState loading message="Открываем кошелёк…" />;
   }
@@ -103,6 +115,7 @@ export function App() {
       activeTab={tab}
       onTabChange={changeTab}
       toast={feedback}
+      floating={floatingControl()}
     >
       {tab === "home" && (
         <HomePage

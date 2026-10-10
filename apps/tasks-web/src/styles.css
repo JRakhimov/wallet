@@ -1,0 +1,154 @@
+/* Tasks-specific styles. Shared styles and theme tokens come from @ui/styles. */
+
+.section-title.danger {
+  color: var(--danger);
+}
+
+/* A group of tasks on one card. */
+.task-list {
+  background: var(--surface);
+  border-radius: 16px;
+  padding: 0 14px;
+}
+
+.task-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.task-row:last-child {
+  border-bottom: 0;
+}
+
+/* Round checkbox with a 44px tap area around the 22px circle. */
+.task-check {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 44px;
+  height: 52px;
+  margin: 0 -11px;
+  border: 0;
+  background: transparent;
+  color: var(--accent-on);
+}
+.task-check::before {
+  content: "";
+  grid-area: 1 / 1;
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--muted);
+  border-radius: 50%;
+}
+.task-check svg {
+  grid-area: 1 / 1;
+  z-index: 1;
+}
+.task-row.done .task-check::before {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.task-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 15px 0 14px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.task-title {
+  font-size: 15px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.task-row.done .task-title {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.task-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.task-meta .overdue {
+  color: var(--danger);
+  font-weight: 600;
+}
+.task-meta .task-note {
+  flex-basis: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.task-meta .task-note svg {
+  flex: none;
+}
+
+/* Sheet fields. */
+.task-title-field,
+.task-note-field {
+  margin-top: 6px;
+  resize: none;
+  line-height: 1.4;
+}
+
+/* Four date choices fit in one row even on a narrow phone. */
+.date-modes {
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+.date-modes button {
+  padding: 0 2px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.task-time {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.task-time .field {
+  flex: 1;
+}
+
+.weekday-picker {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+.weekday-picker button {
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--muted);
+}
+.weekday-picker button.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.tasks-hint {
+  margin-top: 24px;
+  line-height: 1.45;
+}

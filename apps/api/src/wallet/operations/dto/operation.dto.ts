@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { month, positiveMoney, uuid, version } from "../../../common/validation/schemas";
+import { month, positiveMoney, rate, uuid, version } from "../../../common/validation/schemas";
 
 const MIN_YEAR = 2000;
 const FUTURE_TOLERANCE_MS = 60_000;
@@ -18,6 +18,8 @@ export const operationSchema = z
     amount: positiveMoney,
     accountId: uuid,
     targetAccountId: uuid.optional(),
+    // Required only for a transfer between accounts in different currencies.
+    rate: rate.optional(),
     categoryId: uuid.optional(),
     parentId: uuid.optional(),
     direction: z.enum(["in", "out"]).optional(),
