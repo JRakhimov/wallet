@@ -153,7 +153,6 @@ export function TaskSheet({
             maxLength={MAX_TITLE}
             placeholder="Например, позвонить в банк"
             value={title}
-            autoFocus={!task}
             onChange={(event) => setTitle(event.target.value)}
           />
         </label>
