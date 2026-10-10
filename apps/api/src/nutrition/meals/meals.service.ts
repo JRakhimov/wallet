@@ -21,6 +21,7 @@ import {
   MealAnalyzer,
 } from "../analysis/meal-analyzer";
 import { PhotosService } from "../photos/photos.service";
+import { workoutView, WorkoutsService } from "../workouts/workouts.service";
 import { AnalyzeMealDto, MealItemDto, SaveMealDto } from "./dto/meal.dto";
 import { MealWithItems, mealView, StoredAnalysis, sumTotals, Totals } from "./meal.view";
 
@@ -41,6 +42,7 @@ export class MealsService {
     private readonly db: PrismaService,
     private readonly owners: OwnerService,
     private readonly photos: PhotosService,
+    private readonly workouts: WorkoutsService,
     @Inject(MEAL_ANALYZER) private readonly analyzer: MealAnalyzer | null,
   ) {}
 
@@ -192,7 +194,19 @@ export class MealsService {
       orderBy: { eatenAt: "asc" },
     });
     const views = meals.map(mealView);
-    return { date, totals: sumTotals(views.map((meal) => meal.totals)), meals: views };
+    const workouts = (
+      await this.workouts.list(ownerId, {
+        from: start.toJSDate(),
+        to: start.plus({ days: 1 }).toJSDate(),
+      })
+    ).map(workoutView);
+    return {
+      date,
+      totals: sumTotals(views.map((meal) => meal.totals)),
+      meals: views,
+      workouts,
+      burnedKcal: workouts.reduce((total, workout) => total + workout.kcal, 0),
+    };
   }
 
   /** Totals per day of a month (YYYY-MM) in the owner's timezone, newest day first. */
@@ -220,8 +234,29 @@ export class MealsService {
       };
       byDay.set(date, [...(byDay.get(date) ?? []), totals]);
     }
-    const days = [...byDay.entries()]
-      .map(([date, list]) => ({ date, mealCount: list.length, totals: sumTotals(list) }))
+
+    const burnedByDay = new Map<string, number>();
+    const workouts = await this.workouts.list(ownerId, {
+      from: start.toJSDate(),
+      to: start.plus({ months: 1 }).toJSDate(),
+    });
+    for (const workout of workouts) {
+      const date = DateTime.fromJSDate(workout.performedAt, { zone: timezone }).toISODate()!;
+      burnedByDay.set(date, (burnedByDay.get(date) ?? 0) + workout.kcal);
+    }
+
+    // A day with only a workout is still a day of the diary.
+    const dates = new Set([...byDay.keys(), ...burnedByDay.keys()]);
+    const days = [...dates]
+      .map((date) => {
+        const list = byDay.get(date) ?? [];
+        return {
+          date,
+          mealCount: list.length,
+          totals: sumTotals(list),
+          workoutKcal: burnedByDay.get(date) ?? 0,
+        };
+      })
       .sort((a, b) => b.date.localeCompare(a.date));
     return { month, days };
   }

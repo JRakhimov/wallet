@@ -246,16 +246,23 @@ h1 {
   padding: 10px 12px;
   font-size: 16px;
 }
-/* iOS Safari renders date inputs natively: centered text and a content-based min width. */
-input.field[type="date"] {
+/* iOS Safari renders date and time inputs natively: centered text and a content-based min width. */
+input.field[type="date"],
+input.field[type="time"] {
   -webkit-appearance: none;
   appearance: none;
   min-width: 0;
   text-align: left;
+  /* The native value box sits off-centre by default; centre it vertically. */
+  display: flex;
+  align-items: center;
 }
-input.field[type="date"]::-webkit-date-and-time-value {
+input.field[type="date"]::-webkit-date-and-time-value,
+input.field[type="time"]::-webkit-date-and-time-value {
   text-align: left;
   margin: 0;
+  min-height: 0;
+  line-height: normal;
 }
 .search {
   margin: 0 0 14px;

@@ -1,17 +1,26 @@
 import { Droplet, Ham, Wheat } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { DailyTargets } from "../api";
+import type { MacroKey } from "../macroInfo";
 
-type Macros = Pick<DailyTargets, "proteinG" | "fatG" | "carbsG">;
+type Macros = Pick<DailyTargets, MacroKey>;
 
-const MACROS: { key: keyof Macros; Icon: LucideIcon; remainingLabel: string }[] = [
+const MACROS: { key: MacroKey; Icon: LucideIcon; remainingLabel: string }[] = [
   { key: "proteinG", Icon: Ham, remainingLabel: "Осталось белков" },
   { key: "carbsG", Icon: Wheat, remainingLabel: "Осталось углеводов" },
   { key: "fatG", Icon: Droplet, remainingLabel: "Осталось жиров" },
 ];
 
 /** Grams of protein, carbs and fat left for today, one card each in a row. */
-export function MacroCards({ eaten, targets }: { eaten: Macros; targets: Macros }) {
+export function MacroCards({
+  eaten,
+  targets,
+  onSelect,
+}: {
+  eaten: Macros;
+  targets: Macros;
+  onSelect: (macro: MacroKey) => void;
+}) {
   return (
     <div className="macro-cards">
       {MACROS.map(({ key, Icon, remainingLabel }) => {
@@ -20,7 +29,12 @@ export function MacroCards({ eaten, targets }: { eaten: Macros; targets: Macros 
         const over = remaining < 0;
         const percent = target > 0 ? Math.min(100, (eaten[key] / target) * 100) : 0;
         return (
-          <div key={key} className={"macro-card" + (over ? " over" : "")}>
+          <button
+            key={key}
+            type="button"
+            className={"macro-card" + (over ? " over" : "")}
+            onClick={() => onSelect(key)}
+          >
             <div className="macro-amount">
               <Icon size={20} aria-hidden="true" />
               <strong>{Math.abs(remaining)} г</strong>
@@ -29,7 +43,7 @@ export function MacroCards({ eaten, targets }: { eaten: Macros; targets: Macros 
             <div className="macro-track" aria-hidden="true">
               <i style={{ width: `${percent}%` }} />
             </div>
-          </div>
+          </button>
         );
       })}
     </div>

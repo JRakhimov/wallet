@@ -3,14 +3,17 @@ import { useQueryClient } from "@tanstack/react-query";
 import { DateTime } from "luxon";
 import { UtensilsCrossed } from "lucide-react";
 import { Sheet, SheetPresence } from "@ui/components/Sheet";
-import { dayQueryKey, historyQueryKey, Meal, NutritionProfile, useDay } from "../api";
+import { dayQueryKey, historyQueryKey, Meal, NutritionProfile, useDay, Workout } from "../api";
 import { CalorieRing } from "../components/CalorieRing";
 import { MacroCards } from "../components/MacroCards";
 import { MealCard } from "../components/MealCard";
 import { MealReview } from "../components/MealReview";
 import { PendingMealCard } from "../components/PendingMealCard";
+import { WorkoutRow } from "../components/WorkoutRow";
 import { mealNames, mealTime } from "../lib/meal-names";
 import { PendingMeals } from "../lib/pending-meals";
+import type { MacroKey } from "../macroInfo";
+import { MacroInfoPage } from "./MacroInfoPage";
 
 const NOTHING_EATEN = { kcal: 0, proteinG: 0, fatG: 0, carbsG: 0 };
 
@@ -19,18 +22,21 @@ export function TodayPage({
   timezone,
   pendingMeals,
   onMealSaved,
+  onEditWorkout,
 }: {
   profile: NutritionProfile;
   timezone: string;
   pendingMeals: PendingMeals;
   /** A recognized draft was written into the diary. */
   onMealSaved: (meal: Meal) => void;
+  onEditWorkout: (workout: Workout) => void;
 }) {
   const queryClient = useQueryClient();
   const now = DateTime.now().setZone(timezone);
   const date = now.toISODate()!;
   const dayQ = useDay(date);
   const [selected, setSelected] = useState<Meal | null>(null);
+  const [macroDetail, setMacroDetail] = useState<MacroKey | null>(null);
 
   const meals = dayQ.data?.meals ?? [];
   const eaten = dayQ.data?.totals ?? NOTHING_EATEN;
@@ -61,6 +67,17 @@ export function TodayPage({
     refresh();
   }
 
+  if (macroDetail) {
+    return (
+      <MacroInfoPage
+        macro={macroDetail}
+        eaten={eaten[macroDetail]}
+        target={profile.targets[macroDetail]}
+        onBack={() => setMacroDetail(null)}
+      />
+    );
+  }
+
   return (
     <div className="page">
       <div className="page-heading">
@@ -70,9 +87,13 @@ export function TodayPage({
         </div>
       </div>
       <section className="card">
-        <CalorieRing eaten={eaten.kcal} target={profile.targets.kcal} />
+        <CalorieRing
+          eaten={eaten.kcal}
+          target={profile.targets.kcal}
+          burned={dayQ.data?.burnedKcal}
+        />
       </section>
-      <MacroCards eaten={eaten} targets={profile.targets} />
+      <MacroCards eaten={eaten} targets={profile.targets} onSelect={setMacroDetail} />
 
       <h2 className="section-title">Приёмы пищи</h2>
       {meals.length > 0 || pending.length > 0 ? (
@@ -107,6 +128,22 @@ export function TodayPage({
               : "Сегодня ещё ничего не записано. Нажмите «+», чтобы добавить приём пищи."}
           </span>
         </div>
+      )}
+
+      {(dayQ.data?.workouts.length ?? 0) > 0 && (
+        <>
+          <h2 className="section-title">Тренировки</h2>
+          <div className="meal-list">
+            {dayQ.data!.workouts.map((workout) => (
+              <WorkoutRow
+                key={workout.id}
+                workout={workout}
+                timezone={timezone}
+                onClick={() => onEditWorkout(workout)}
+              />
+            ))}
+          </div>
+        </>
       )}
 
       <SheetPresence>

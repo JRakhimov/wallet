@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { OwnerService } from "../src/owner/owner.service";
 import { AccountsService } from "../src/wallet/accounts/accounts.service";
 import { CategoriesService } from "../src/wallet/categories/categories.service";
+import { WorkoutsService } from "../src/nutrition/workouts/workouts.service";
 import { OperationsService } from "../src/wallet/operations/operations.service";
 import { SpeechToText } from "../src/voice/speech-to-text";
 import { ParsedTransaction, TransactionParser } from "../src/voice/transaction-parser";
@@ -17,6 +18,7 @@ const categories = [
 
 function setup(text: string, parsed: Partial<ParsedTransaction>) {
   const created: { input: Record<string, unknown>; key: string }[] = [];
+  const workouts: { input: Record<string, unknown>; key: string }[] = [];
   const asked: unknown[] = [];
   const speech: SpeechToText = { transcribe: async () => text };
   const parser: TransactionParser = {
@@ -26,6 +28,7 @@ function setup(text: string, parsed: Partial<ParsedTransaction>) {
         isTransaction: true,
         kind: "expense",
         amount: 45000,
+        durationMinutes: null,
         categoryId: "cafe",
         note: "обед",
         ...parsed,
@@ -45,8 +48,13 @@ function setup(text: string, parsed: Partial<ParsedTransaction>) {
         created.push({ input, key });
       },
     } as unknown as OperationsService,
+    {
+      create: async (_owner: string, input: Record<string, unknown>, key: string) => {
+        workouts.push({ input, key });
+      },
+    } as unknown as WorkoutsService,
   );
-  return { service, created, asked };
+  return { service, created, workouts, asked };
 }
 
 const recording = { telegramId: 1n, audio: Buffer.from("x"), filename: "voice.ogg", key: "k1" };
@@ -97,7 +105,39 @@ test("without speech recognition configured nothing is recorded", async () => {
     null as never,
     null as never,
     null as never,
+    null as never,
   );
   assert.equal(service.enabled, false);
   await assert.rejects(service.record(recording), VoiceError);
+});
+
+test("a workout is recorded with its calories, length and kind", async () => {
+  const { service, created, workouts } = setup(
+    "запиши тренировку бег сорок пять минут сожжено 420",
+    {
+      kind: "workout",
+      amount: 420,
+      durationMinutes: 45,
+      categoryId: null,
+      note: "бег",
+    },
+  );
+  const reply = await service.record(recording);
+
+  assert.equal(reply.replace(/\s/g, " "), "Тренировка (бег): 420 ккал · 45 мин записана");
+  assert.equal(created.length, 0); // no money operation
+  assert.equal(workouts[0].key, "k1");
+  assert.equal(workouts[0].input.kcal, 420);
+  assert.equal(workouts[0].input.durationMin, 45);
+  assert.equal(workouts[0].input.note, "бег");
+});
+
+test("an implausible workout is rejected", async () => {
+  const { service, workouts } = setup("тренировка", {
+    kind: "workout",
+    amount: 90000,
+    categoryId: null,
+  });
+  await assert.rejects(service.record(recording), VoiceError);
+  assert.equal(workouts.length, 0);
 });

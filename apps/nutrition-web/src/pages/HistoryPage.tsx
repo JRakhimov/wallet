@@ -10,6 +10,16 @@ import { MealReview } from "../components/MealReview";
 import { formatNumber } from "../lib/labels";
 import { mealNames, mealTime } from "../lib/meal-names";
 
+/**
+ * Energy balance of a day: eaten minus what the profile says is spent. Workouts are only
+ * displayed and are not part of it. Only for days with meals: without them nothing was measured.
+ */
+const dayBalance = (day: DaySummary, tdee: number) =>
+  day.mealCount > 0 ? day.totals.kcal - tdee : null;
+
+const signed = (value: number) =>
+  `${value > 0 ? "+" : value < 0 ? "−" : ""}${formatNumber(Math.abs(value))}`;
+
 /** Days of a month with their totals; a day opens to its meals, a meal to its review. */
 export function HistoryPage({
   profile,
@@ -25,6 +35,15 @@ export function HistoryPage({
   const [selected, setSelected] = useState<Meal | null>(null);
   const historyQ = useHistory(month);
   const days = historyQ.data?.days ?? [];
+  // Today is unfinished: it would look like a deficit.
+  const today = DateTime.now().setZone(timezone).toISODate();
+  const balances = days
+    .filter((day) => day.date !== today)
+    .map((day) => dayBalance(day, profile.tdee))
+    .filter((balance): balance is number => balance !== null);
+  const averageBalance = balances.length
+    ? balances.reduce((total, balance) => total + balance, 0) / balances.length
+    : null;
 
   function refresh() {
     void queryClient.invalidateQueries({ queryKey: ["nutrition", "day"] });
@@ -47,6 +66,17 @@ export function HistoryPage({
         futureDisabled={month >= thisMonth}
       />
 
+      {averageBalance !== null && (
+        <div className="card history-balance-card">
+          <span>Средний баланс за {balances.length} дн</span>
+          <strong>{signed(averageBalance)} ккал в день</strong>
+          <small>
+            Съедено минус расход по профилю ({formatNumber(profile.tdee)} ккал). Минус значит
+            дефицит. Тренировки сюда не входят.
+          </small>
+        </div>
+      )}
+
       {days.length > 0 ? (
         <div className="history-list">
           {days.map((day) => (
@@ -54,6 +84,7 @@ export function HistoryPage({
               key={day.date}
               day={day}
               target={profile.targets.kcal}
+              balance={dayBalance(day, profile.tdee)}
               timezone={timezone}
               open={openDate === day.date}
               onToggle={() => setOpenDate(openDate === day.date ? null : day.date)}
@@ -96,6 +127,7 @@ export function HistoryPage({
 function HistoryDay({
   day,
   target,
+  balance,
   timezone,
   open,
   onToggle,
@@ -103,6 +135,7 @@ function HistoryDay({
 }: {
   day: DaySummary;
   target: number;
+  balance: number | null;
   timezone: string;
   open: boolean;
   onToggle: () => void;
@@ -122,6 +155,12 @@ function HistoryDay({
             Б {formatNumber(totals.proteinG)} · Ж {formatNumber(totals.fatG)} · У{" "}
             {formatNumber(totals.carbsG)} г
           </small>
+          {(day.workoutKcal > 0 || balance !== null) && (
+            <small className="history-extra">
+              {day.workoutKcal > 0 && <span>🔥 {formatNumber(day.workoutKcal)} ккал</span>}
+              {balance !== null && <span>Баланс {signed(balance)}</span>}
+            </small>
+          )}
         </span>
         <span className="meal-kcal">
           {formatNumber(totals.kcal)} <small>ккал</small>

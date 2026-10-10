@@ -111,7 +111,22 @@ export type Meal = {
   questions: string[];
 };
 
-export type Day = { date: string; totals: Totals; meals: Meal[] };
+/** Active calories burned in a session; shown next to the diary, never part of the targets. */
+export type Workout = {
+  id: string;
+  performedAt: string;
+  kcal: number;
+  durationMin: number | null;
+  note: string;
+};
+
+export type Day = {
+  date: string;
+  totals: Totals;
+  meals: Meal[];
+  workouts: Workout[];
+  burnedKcal: number;
+};
 
 export const dayQueryKey = (date: string) => ["nutrition", "day", date];
 
@@ -122,7 +137,7 @@ export function useDay(date: string) {
   });
 }
 
-export type DaySummary = { date: string; mealCount: number; totals: Totals };
+export type DaySummary = { date: string; mealCount: number; totals: Totals; workoutKcal: number };
 
 export const historyQueryKey = (month: string) => ["nutrition", "history", month];
 
@@ -216,4 +231,26 @@ export function usePhotoUrl(photoId: string | null, size: "thumb" | "full") {
     staleTime: Infinity,
     meta: { persist: false },
   });
+}
+
+export type WorkoutInput = Omit<Workout, "id">;
+
+/** `idempotencyKey` makes retries safe. */
+export function createWorkout(input: WorkoutInput, idempotencyKey: string) {
+  return request<Workout>("/nutrition/workouts", {
+    method: "POST",
+    body: JSON.stringify(input),
+    key: idempotencyKey,
+  });
+}
+
+export function updateWorkout(id: string, input: WorkoutInput) {
+  return request<Workout>(`/nutrition/workouts/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteWorkout(id: string) {
+  return request<{ ok: true }>(`/nutrition/workouts/${id}`, { method: "DELETE" });
 }

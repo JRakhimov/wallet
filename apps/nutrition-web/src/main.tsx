@@ -13,7 +13,7 @@ configurePlatform({
 });
 
 // Bump when API response shapes change, so stale cached data is discarded.
-const CACHE_VERSION = "1";
+const CACHE_VERSION = "2";
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

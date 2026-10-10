@@ -123,7 +123,6 @@ export const AddMealFlow = forwardRef<
                   className="field"
                   rows={mode === "photo" ? 2 : 4}
                   maxLength={1000}
-                  autoFocus={mode === "text"}
                   placeholder={
                     mode === "photo"
                       ? "Необязательно: что это и сколько, например «плов, полтарелки»"

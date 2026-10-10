@@ -3,6 +3,7 @@ import { rateLimit } from "../../common/middleware/rate-limit.middleware";
 import { OwnerModule } from "../../owner/owner.module";
 import { AnalysisModule } from "../analysis/analysis.module";
 import { PhotosModule } from "../photos/photos.module";
+import { WorkoutsModule } from "../workouts/workouts.module";
 import { MealsController } from "./meals.controller";
 import { MealsService } from "./meals.service";
 
@@ -10,7 +11,7 @@ import { MealsService } from "./meals.service";
 const ANALYSIS_REQUESTS_PER_MINUTE = 10;
 
 @Module({
-  imports: [OwnerModule, PhotosModule, AnalysisModule],
+  imports: [OwnerModule, PhotosModule, AnalysisModule, WorkoutsModule],
   controllers: [MealsController],
   providers: [MealsService],
 })

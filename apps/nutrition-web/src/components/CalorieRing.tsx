@@ -6,7 +6,16 @@ const RADIUS = (SIZE - STROKE) / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 /** Eaten calories against the daily target. */
-export function CalorieRing({ eaten, target }: { eaten: number; target: number }) {
+export function CalorieRing({
+  eaten,
+  target,
+  burned = 0,
+}: {
+  eaten: number;
+  target: number;
+  /** Calories burned in workouts today: shown next to the ring, the target stays the same. */
+  burned?: number;
+}) {
   const progress = target > 0 ? Math.min(1, eaten / target) : 0;
   const remaining = target - eaten;
   const over = remaining < 0;
@@ -38,6 +47,7 @@ export function CalorieRing({ eaten, target }: { eaten: number; target: number }
       <p className="ring-caption">
         Съедено {formatNumber(eaten)} из {formatNumber(target)} ккал
       </p>
+      {burned > 0 && <p className="ring-burned">🔥 Тренировки: +{formatNumber(burned)} ккал</p>}
     </div>
   );
 }

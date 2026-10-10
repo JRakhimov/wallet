@@ -22,6 +22,7 @@ model Owner {
   nutritionProfile NutritionProfile?
   meals            Meal[]
   mealPhotos       MealPhoto[]
+  workouts         Workout[]
 }
 
 model Session {
@@ -202,4 +203,23 @@ model MealPhoto {
   thumbKey   String
   createdAt  DateTime @default(now())
   meals      Meal[]
+}
+
+// A workout: only the active calories burned are kept (e.g. from the watch after a session).
+// They are shown next to the diary and never change the daily targets.
+model Workout {
+  id             String    @id @default(uuid()) @db.Uuid
+  ownerId        String    @db.Uuid
+  owner          Owner     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  performedAt    DateTime  @db.Timestamptz(3)
+  kcal           Int
+  durationMin    Int?
+  note           String    @default("")
+  idempotencyKey String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  @@unique([ownerId, idempotencyKey])
+  @@index([ownerId, performedAt])
 }
