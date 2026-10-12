@@ -98,7 +98,11 @@ test("polling checks for a webhook, acknowledges processed updates and aborts on
       ["getWebhookInfo", "getUpdates", "sendMessage", "getUpdates"],
     );
     assert.equal(calls[3].body.offset, 43);
-    assert.deepEqual(calls[1].body.allowed_updates, ["message", "callback_query"]);
+    assert.deepEqual(calls[1].body.allowed_updates, [
+      "message",
+      "callback_query",
+      "stopped_message_generation",
+    ]);
   } finally {
     await bot.onModuleDestroy();
   }
@@ -182,6 +186,12 @@ test("/start shows a button for every deployed mini app", async (t) => {
   ]);
 });
 
+const SECRET = "s".repeat(32);
+const webhookConfig = {
+  ...config,
+  webhook: { url: "https://api.example/api/telegram/webhook", secret: SECRET },
+};
+
 const chat = { from: { id: 123 }, chat: { id: 123, type: "private" } };
 const voiceUpdate = {
   update_id: 77,
@@ -219,10 +229,10 @@ function mockTelegram(t: TestContext, files: Record<string, number[]> = {}) {
 
   return {
     calls,
-    sent: () => of("sendMessage").map((call) => call.body.text),
-    edited: () => of("editMessageText").map((call) => call.body.text),
-    silent: () => of("sendMessage").map((call) => call.body.disable_notification),
     of,
+    sent: () => of("sendMessage").map((call) => call.body.text),
+    silent: () => of("sendMessage").map((call) => call.body.disable_notification),
+    drafts: () => of("sendMessageDraft").map((call) => call.body),
   };
 }
 
@@ -249,10 +259,10 @@ function fakeAssistant(answer: (input: ChatInput) => Promise<AssistantReply>) {
   return { assistant: assistant as unknown as AssistantService, inputs, resolved, restarted };
 }
 
-function chatBot(assistant: AssistantService) {
+function chatBot(assistant: AssistantService, botConfig = config) {
   return new TelegramBotService(
     database() as unknown as PrismaService,
-    config,
+    botConfig,
     assistant,
     access,
     noTasks,
@@ -261,11 +271,11 @@ function chatBot(assistant: AssistantService) {
 
 const UNDO = "act:55555555-5555-4555-8555-555555555555";
 
-test("a voice message shows its progress, is answered once and gets the answer's buttons", async (t) => {
+test("a voice message shows a draft at once, is answered once and gets the answer's buttons", async (t) => {
   const telegram = mockTelegram(t);
   const { assistant, inputs } = fakeAssistant(async (input) => {
-    await input.onStage!("recognizing");
-    await input.onStage!("thinking");
+    input.onProgress!("Распознаём голос…");
+    input.onProgress!("");
 
     return {
       text: "Расход 45 000 сум за обед записан · Кафе",
@@ -277,14 +287,13 @@ test("a voice message shows its progress, is answered once and gets the answer's
   await bot.handleUpdate(voiceUpdate);
   await bot.handleUpdate(voiceUpdate);
 
-  assert.deepEqual(telegram.sent(), ["Принято в обработку…"]);
-  assert.deepEqual(telegram.silent(), [true]);
-  assert.deepEqual(telegram.edited(), [
-    "Распознаём голос…",
-    "Думаю…",
-    "Расход 45 000 сум за обед записан · Кафе",
+  // Later progress within the update interval is merged; the answer replaces the draft anyway.
+  assert.deepEqual(telegram.drafts(), [
+    { chat_id: 123, draft_id: 77, text: "Принято в обработку…" },
   ]);
-  assert.deepEqual(telegram.of("editMessageText").at(-1)!.body.reply_markup, {
+  assert.deepEqual(telegram.sent(), ["Расход 45 000 сум за обед записан · Кафе"]);
+  assert.deepEqual(telegram.silent(), [true]);
+  assert.deepEqual(telegram.of("sendMessage")[0].body.reply_markup, {
     inline_keyboard: [[{ text: "↩️ Отменить", callback_data: UNDO }]],
   });
 
@@ -295,18 +304,18 @@ test("a voice message shows its progress, is answered once and gets the answer's
   assert.equal(inputs[0].photo, null);
 });
 
-test("a text message goes to the assistant and the answer replaces «Думаю…»", async (t) => {
+test("a text message shows Telegram's thinking placeholder, then the answer", async (t) => {
   const telegram = mockTelegram(t);
-  const { assistant, inputs } = fakeAssistant(async (input) => {
-    await input.onStage!("thinking");
-    return { text: "В октябре потрачено 3 800 000 сум", buttons: [] };
-  });
+  const { assistant, inputs } = fakeAssistant(async () => ({
+    text: "В октябре потрачено 3 800 000 сум",
+    buttons: [],
+  }));
 
   await chatBot(assistant).handleUpdate(textUpdate);
 
-  assert.deepEqual(telegram.sent(), ["Думаю…"]);
-  assert.deepEqual(telegram.edited(), ["В октябре потрачено 3 800 000 сум"]);
-  assert.equal(telegram.of("editMessageText")[0].body.reply_markup, undefined);
+  assert.deepEqual(telegram.drafts(), [{ chat_id: 123, draft_id: 80, text: "" }]);
+  assert.deepEqual(telegram.sent(), ["В октябре потрачено 3 800 000 сум"]);
+  assert.equal(telegram.of("sendMessage")[0].body.reply_markup, undefined);
   assert.equal(inputs[0].text, "сколько я потратил?");
   assert.equal(inputs[0].audio, null);
   assert.equal(inputs[0].key, "telegram-80");
@@ -330,7 +339,7 @@ test("a photo goes in a size fit for recognition, with a small copy for the diar
     },
   });
 
-  assert.deepEqual(telegram.sent(), ["Смотрю фото…"]);
+  assert.equal(telegram.drafts()[0].text, "Смотрю фото…");
   assert.equal(inputs[0].text, "обед");
   assert.deepEqual([...inputs[0].photo!.full], [1, 2, 3, 4]);
   assert.deepEqual([...inputs[0].photo!.thumbnail], [5, 6]);
@@ -347,9 +356,8 @@ test("a long answer is split at a line break; the buttons go under the last part
 
   await chatBot(assistant).handleUpdate(textUpdate);
 
-  assert.deepEqual(telegram.edited(), [first]);
-  assert.deepEqual(telegram.sent(), ["Думаю…", second]);
-  assert.equal(telegram.of("editMessageText")[0].body.reply_markup, undefined);
+  assert.deepEqual(telegram.sent(), [first, second]);
+  assert.equal(telegram.of("sendMessage")[0].body.reply_markup, undefined);
   assert.deepEqual(telegram.of("sendMessage")[1].body.reply_markup, {
     inline_keyboard: [[{ text: "↩️ Отменить", callback_data: UNDO }]],
   });
@@ -364,10 +372,8 @@ test("failures are reported with sound; unknown commands and strangers get nothi
   const bot = chatBot(assistant);
 
   await bot.handleUpdate(textUpdate);
-  // The status turns into "failed", and the reason arrives as a separate message with sound.
-  assert.deepEqual(telegram.sent(), ["Думаю…", "Не понял\nНичего не записано."]);
-  assert.deepEqual(telegram.edited(), ["Не получилось"]);
-  assert.deepEqual(telegram.silent(), [true, false]);
+  assert.deepEqual(telegram.sent(), ["Не понял\nНичего не записано."]);
+  assert.deepEqual(telegram.silent(), [false]);
 
   // Something unexpected may have happened after a record: no promise that nothing was saved.
   failure = new Error("Boom");
@@ -385,6 +391,7 @@ test("failures are reported with sound; unknown commands and strangers get nothi
   assert.deepEqual(telegram.sent(), [
     "Сообщение слишком длинное. Запишите короче, до двух минут\nНичего не записано.",
   ]);
+  assert.deepEqual(telegram.drafts(), []);
   assert.equal(inputs.length, 2);
 });
 
@@ -405,6 +412,33 @@ test("/new starts the conversation over", async (t) => {
   assert.deepEqual(restarted, [123n]);
   assert.deepEqual(telegram.sent(), ["Начнём заново. Что нужно сделать или узнать?"]);
   assert.equal(inputs.length, 0);
+});
+
+test("in webhook mode the draft has a stop button, and a tap aborts the answer at once", async (t) => {
+  const telegram = mockTelegram(t);
+  let started!: () => void;
+  const running = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const { assistant } = fakeAssistant(async (input) => {
+    started();
+    await new Promise((resolve) => input.signal!.addEventListener("abort", resolve));
+
+    return { text: "⏹ Остановлено", buttons: [] };
+  });
+  const bot = chatBot(assistant, webhookConfig);
+
+  const answered = bot.enqueue(textUpdate);
+  await running;
+  // The stop is not queued behind the answer it should stop.
+  void bot.enqueue({
+    update_id: 87,
+    stopped_message_generation: { chat: { id: 123 }, draft_id: 80 },
+  });
+  await answered;
+
+  assert.deepEqual(telegram.drafts(), [{ chat_id: 123, draft_id: 80, text: "", can_stop: true }]);
+  assert.deepEqual(telegram.sent(), ["⏹ Остановлено"]);
 });
 
 const ACTION_ID = "33333333-3333-4333-8333-333333333333";
@@ -651,12 +685,6 @@ test("strangers' taps are ignored and someone else's task is not found", async (
   assert.equal(calls[0].body.text, "Задача уже удалена");
 });
 
-const SECRET = "s".repeat(32);
-const webhookConfig = {
-  ...config,
-  webhook: { url: "https://api.example/api/telegram/webhook", secret: SECRET },
-};
-
 function recordCalls(t: TestContext, results: Record<string, unknown> = {}) {
   const calls: { method: string; body: Record<string, unknown> }[] = [];
 
@@ -690,7 +718,7 @@ test("webhook mode registers the webhook with its secret and does not poll", asy
   assert.deepEqual(calls[0].body, {
     url: "https://api.example/api/telegram/webhook",
     secret_token: SECRET,
-    allowed_updates: ["message", "callback_query"],
+    allowed_updates: ["message", "callback_query", "stopped_message_generation"],
     drop_pending_updates: false,
   });
 });

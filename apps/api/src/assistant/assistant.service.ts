@@ -8,6 +8,7 @@ import {
   ASSISTANT_MODEL,
   AssistantModel,
   AssistantModelError,
+  AssistantStoppedError,
   ModelCall,
   TurnItem,
 } from "./assistant-model";
@@ -21,8 +22,6 @@ import { ChatPhoto, Offer, ToolContext, ToolError } from "./tools/tool";
 /** A failure whose message can be sent to the chat as is. */
 export class AssistantError extends Error {}
 
-export type AssistantStage = "recognizing" | "thinking";
-
 export type ChatInput = {
   telegramId: bigint;
   /** Typed text or the caption of a photo. */
@@ -31,8 +30,12 @@ export type ChatInput = {
   photo: ChatPhoto | null;
   /** Unique per Telegram update: makes the records of this message idempotent. */
   key: string;
-  /** Called when the work moves on, so the chat can show progress. */
-  onStage?: (stage: AssistantStage) => Promise<void>;
+  /** What is being done now, e.g. "Ищу операции…"; an empty text means thinking. */
+  onProgress?: (text: string) => void;
+  /** The answer as it is written: the whole text so far. */
+  onText?: (text: string) => void;
+  /** Aborted when the user stops the answer. */
+  signal?: AbortSignal;
 };
 
 export type ReplyButton = { text: string; data: string };
@@ -45,6 +48,11 @@ const MAX_STEPS = 8;
 const DAILY_LIMIT = 200;
 const MAX_TEXT = 4000;
 const MAX_LABEL = 24;
+
+/** Progress shown while the model thinks: the chat shows its own "thinking" placeholder. */
+const THINKING = "";
+const RECOGNIZING_TEXT = "Распознаём голос…";
+const STOPPED_TEXT = "⏹ Остановлено";
 
 const NOT_CONFIGURED_TEXT = "Ассистент не настроен на сервере";
 const NO_SPEECH_TEXT = "Распознавание голоса не настроено на сервере";
@@ -84,7 +92,7 @@ export class AssistantService {
 
     const userText = await this.userText(input);
 
-    await input.onStage?.("thinking");
+    input.onProgress?.(THINKING);
 
     const owner = await this.owners.ensureOwner(input.telegramId);
     const now = DateTime.now().setZone(owner.timezone);
@@ -102,9 +110,10 @@ export class AssistantService {
       },
     ];
 
-    const answer = await this.converse(this.model, past, turn, context);
-    // Without an answer the records, or at least the questions with buttons, speak for it.
-    const text = answer || context.recorded.join("\n") || (offers.length > 0 ? "" : NO_ANSWER_TEXT);
+    const { answer, stopped } = await this.converse(this.model, past, turn, context, input);
+    const text = stopped
+      ? stoppedText(answer, context.recorded)
+      : answerText(answer, context.recorded, offers);
 
     if (text) {
       turn.push({ type: "assistant", text });
@@ -151,7 +160,7 @@ export class AssistantService {
       throw new AssistantError(NO_SPEECH_TEXT);
     }
 
-    await input.onStage?.("recognizing");
+    input.onProgress?.(RECOGNIZING_TEXT);
 
     const text = await this.speech.transcribe(input.audio!.data, input.audio!.filename);
     if (!text) {
@@ -201,36 +210,57 @@ export class AssistantService {
     return context;
   }
 
-  /** Lets the model call tools until it answers. Returns "" when it gives no answer. */
+  /**
+   * Lets the model call tools until it answers. `answer` is "" when it gives none; when the
+   * user stops it, `answer` is what was written so far.
+   */
   private async converse(
     model: AssistantModel,
     past: TurnItem[],
     turn: TurnItem[],
     context: ToolContext,
+    input: ChatInput,
   ) {
+    let written = "";
+
+    const onText = (text: string) => {
+      written = text;
+      input.onText?.(text);
+    };
+
     try {
       for (let step = 0; step < MAX_STEPS; step++) {
         const answer = await model.respond({
           instructions: SYSTEM_PROMPT,
           items: [...past, ...turn],
           tools: this.toolbox.tools.specs,
+          signal: input.signal,
+          onText,
         });
 
         if (answer.calls.length === 0) {
-          return answer.text;
+          return { answer: answer.text, stopped: false };
         }
 
         if (answer.text) {
           turn.push({ type: "assistant", text: answer.text });
         }
 
+        input.onProgress?.(this.progressOf(answer.calls));
         await this.runCalls(answer.calls, turn, context);
+
+        written = "";
+        input.onProgress?.(THINKING);
       }
 
       this.logger.warn("The assistant reached the step limit");
 
-      return "";
+      return { answer: "", stopped: false };
     } catch (error) {
+      if (error instanceof AssistantStoppedError) {
+        return { answer: written, stopped: true };
+      }
+
       if (!(error instanceof AssistantModelError)) {
         throw error;
       }
@@ -239,11 +269,20 @@ export class AssistantService {
 
       // What was already recorded is reported instead of the answer.
       if (context.recorded.length > 0) {
-        return "";
+        return { answer: "", stopped: false };
       }
 
       throw new AssistantError(error.message);
     }
+  }
+
+  /** What the chat shows while the tools run: the first known tool's progress. */
+  private progressOf(calls: ModelCall[]) {
+    const tool = calls
+      .map((call) => this.toolbox.tools.tools.get(call.name))
+      .find((found) => found !== undefined);
+
+    return tool?.progress ?? THINKING;
   }
 
   /** Runs the calls one by one: records keep their order and their idempotency keys. */
@@ -295,6 +334,26 @@ export class AssistantService {
 
     return INTERNAL_ERROR;
   }
+}
+
+/** Without an answer the records, or at least the questions with buttons, speak for it. */
+function answerText(answer: string, recorded: string[], offers: Offer[]) {
+  if (answer) {
+    return answer;
+  }
+
+  if (recorded.length > 0) {
+    return recorded.join("\n");
+  }
+
+  return offers.length > 0 ? "" : NO_ANSWER_TEXT;
+}
+
+/** A stopped answer keeps what was written and what was recorded before the stop. */
+function stoppedText(written: string, recorded: string[]) {
+  const before = written || recorded.join("\n");
+
+  return [before, STOPPED_TEXT].filter(Boolean).join("\n\n");
 }
 
 /** The answer, the changes waiting for confirmation and the buttons under them. */

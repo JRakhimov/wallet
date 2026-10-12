@@ -139,6 +139,7 @@ function walletActions(deps: WalletDeps) {
 function listAccountsAndCategories(deps: WalletDeps) {
   return defineTool({
     name: "list_accounts_and_categories",
+    progress: "Смотрю счета и категории…",
     description:
       "Active wallet accounts with balances and categories of expenses and income. Call it before recording money to pick the account and the category ids.",
     parameters: z.strictObject({}),
@@ -164,6 +165,7 @@ function listAccountsAndCategories(deps: WalletDeps) {
 function monthSummary(deps: WalletDeps) {
   return defineTool({
     name: "month_summary",
+    progress: "Считаю итоги месяца…",
     description:
       "Totals of a month in сум: spending (net of refunds), income, budget and what is left of it, spending by category and by day. Operations on dollar accounts are not included.",
     parameters: z.strictObject({ month: fields.month }),
@@ -182,6 +184,7 @@ function monthSummary(deps: WalletDeps) {
 function spendingInsights(deps: WalletDeps) {
   return defineTool({
     name: "spending_insights",
+    progress: "Анализирую траты…",
     description:
       "Spending patterns of a month in сум: last days against the usual, weeks, weekdays against weekends, change by category against previous months, forecast for the month, the biggest purchase, what is bought most often.",
     parameters: z.strictObject({ month: fields.month }),
@@ -195,6 +198,7 @@ function spendingInsights(deps: WalletDeps) {
 function findOperations(deps: WalletDeps) {
   return defineTool({
     name: "find_operations",
+    progress: "Ищу операции…",
     description:
       "Searches wallet operations, newest first, with the count and the totals of everything that matched (not only the shown page). Use from/to for days and weeks, month for a whole month; with none of them it searches the current month. Amounts are in the currency of each operation.",
     parameters: z.strictObject({
@@ -238,6 +242,7 @@ function findOperations(deps: WalletDeps) {
 function listSubscriptions(deps: WalletDeps) {
   return defineTool({
     name: "list_subscriptions",
+    progress: "Смотрю подписки…",
     description:
       "Monthly subscriptions in сум with the day of the charge and the next charge date.",
     parameters: z.strictObject({}),
@@ -251,6 +256,7 @@ function listSubscriptions(deps: WalletDeps) {
 function addOperation(deps: WalletDeps) {
   return defineTool({
     name: "add_operation",
+    progress: "Записываю…",
     description:
       "Records an expense or an income right away (the user can undo it with a button). The amount is in the account's currency. Without accountId the first account in сум is used.",
     parameters: z.strictObject({
@@ -304,6 +310,7 @@ function addOperation(deps: WalletDeps) {
 function addTransfer(deps: WalletDeps) {
   return defineTool({
     name: "add_transfer",
+    progress: "Записываю перевод…",
     description:
       "Records a transfer between two of the user's accounts right away. Between accounts in different currencies a rate is required: сум for 1 $.",
     parameters: z.strictObject({
@@ -352,6 +359,7 @@ function addTransfer(deps: WalletDeps) {
 function updateOperation(deps: WalletDeps) {
   return defineTool({
     name: "update_operation",
+    progress: "Готовлю изменение…",
     description:
       "Changes an expense or an income found with find_operations. Nothing changes until the user taps «Подтвердить» under your answer. Pass null for what stays the same.",
     parameters: z.strictObject({
@@ -416,6 +424,7 @@ function updateOperation(deps: WalletDeps) {
 function deleteOperation(deps: WalletDeps) {
   return defineTool({
     name: "delete_operation",
+    progress: "Готовлю удаление…",
     description:
       "Deletes an operation found with find_operations. Nothing is deleted until the user taps «Подтвердить» under your answer.",
     parameters: z.strictObject({ operationId: z.string() }),
@@ -443,6 +452,7 @@ function deleteOperation(deps: WalletDeps) {
 function setBudget(deps: WalletDeps) {
   return defineTool({
     name: "set_budget",
+    progress: "Готовлю бюджет…",
     description:
       "Sets the spending budget of a month in сум. Nothing changes until the user taps «Подтвердить».",
     parameters: z.strictObject({ month: fields.month, amount: z.number() }),
@@ -471,6 +481,7 @@ function setBudget(deps: WalletDeps) {
 function addSubscription(deps: WalletDeps) {
   return defineTool({
     name: "add_subscription",
+    progress: "Добавляю подписку…",
     description:
       "Adds a monthly subscription in сум right away; the bot reminds about its charges.",
     parameters: z.strictObject({
@@ -506,6 +517,7 @@ function addSubscription(deps: WalletDeps) {
 function updateSubscription(deps: WalletDeps) {
   return defineTool({
     name: "update_subscription",
+    progress: "Готовлю изменение…",
     description:
       "Changes a subscription from list_subscriptions. Nothing changes until the user taps «Подтвердить». Pass null for what stays the same.",
     parameters: z.strictObject({
@@ -545,6 +557,7 @@ function updateSubscription(deps: WalletDeps) {
 function deleteSubscription(deps: WalletDeps) {
   return defineTool({
     name: "delete_subscription",
+    progress: "Готовлю удаление…",
     description:
       "Deletes a subscription from list_subscriptions. Nothing is deleted until the user taps «Подтвердить».",
     parameters: z.strictObject({ subscriptionId: z.string() }),

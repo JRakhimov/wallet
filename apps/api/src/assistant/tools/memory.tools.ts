@@ -28,6 +28,7 @@ export function memoryTools(deps: MemoryDeps): Toolset {
 function remember(deps: MemoryDeps) {
   return defineTool({
     name: "remember",
+    progress: "Запоминаю…",
     description:
       "Saves a lasting fact or preference about the user for future conversations, e.g. «Такси — всегда категория Транспорт», «Не ест сахар». Only when the user asks to remember or states a lasting preference. Never passwords, card numbers or other secrets.",
     parameters: z.strictObject({
@@ -55,6 +56,7 @@ function remember(deps: MemoryDeps) {
 function forget(deps: MemoryDeps) {
   return defineTool({
     name: "forget",
+    progress: "Забываю…",
     description:
       "Removes a fact from the memory listed in the context, when the user asks to forget it.",
     parameters: z.strictObject({ memoryId: z.string() }),
@@ -73,6 +75,7 @@ function forget(deps: MemoryDeps) {
 function updateSettings(deps: MemoryDeps) {
   return defineTool({
     name: "update_assistant_settings",
+    progress: "Меняю настройки…",
     description:
       "Turns the bot's own messages on or off: the morning brief (tasks, budget, subscriptions, calories) at a chosen time, and the weekly report on Sunday evening. Pass null for what stays the same.",
     parameters: z.strictObject({

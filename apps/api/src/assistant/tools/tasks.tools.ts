@@ -94,6 +94,7 @@ function tasksActions(deps: TasksDeps) {
 function listTasks(deps: TasksDeps) {
   return defineTool({
     name: "list_tasks",
+    progress: "Смотрю задачи…",
     description:
       "Tasks grouped by when they are due: overdue, today, upcoming (two weeks), later, notes without a date, and the ones done in the last 7 days.",
     parameters: z.strictObject({}),
@@ -133,6 +134,7 @@ const scheduleFields = {
 function addTask(deps: TasksDeps) {
   return defineTool({
     name: "add_task",
+    progress: "Записываю задачу…",
     description:
       "Adds a task right away: a reminder with a date and time (the bot reminds then), a to-do for a day, a repeating task, or a note without a date. Resolve «завтра», «в пятницу», «через 2 часа» against the current time.",
     parameters: z.strictObject({
@@ -175,6 +177,7 @@ function addTask(deps: TasksDeps) {
 function completeTask(deps: TasksDeps) {
   return defineTool({
     name: "complete_task",
+    progress: "Отмечаю задачу…",
     description:
       "Marks a task from list_tasks done right away (the user can undo it). A repeating task moves on to its next date.",
     parameters: z.strictObject({ taskId: z.string() }),
@@ -209,6 +212,7 @@ function completeTask(deps: TasksDeps) {
 function updateTask(deps: TasksDeps) {
   return defineTool({
     name: "update_task",
+    progress: "Готовлю изменение…",
     description:
       "Changes a task from list_tasks: text, date, time, repeat. Nothing changes until the user taps «Подтвердить». Pass null for what stays the same; a new date keeps the time and a new time keeps the date.",
     parameters: z.strictObject({
@@ -263,6 +267,7 @@ function updateTask(deps: TasksDeps) {
 function deleteTask(deps: TasksDeps) {
   return defineTool({
     name: "delete_task",
+    progress: "Готовлю удаление…",
     description:
       "Deletes a task or a note from list_tasks. Nothing is deleted until the user taps «Подтвердить».",
     parameters: z.strictObject({ taskId: z.string() }),

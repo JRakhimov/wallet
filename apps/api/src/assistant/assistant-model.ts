@@ -22,7 +22,15 @@ export type ModelCall = { callId: string; name: string; arguments: string };
 /** The model either answers (`calls` is empty) or asks to run tools first. */
 export type ModelAnswer = { text: string; calls: ModelCall[] };
 
-export type ModelRequest = { instructions: string; items: TurnItem[]; tools: ToolSpec[] };
+export type ModelRequest = {
+  instructions: string;
+  items: TurnItem[];
+  tools: ToolSpec[];
+  /** Aborts the request when the user stops the answer. */
+  signal?: AbortSignal;
+  /** Gets the answer as it is written: the whole text so far, each time it grows. */
+  onText?: (text: string) => void;
+};
 
 /** The language model behind the assistant; replaceable, e.g. by a fake in tests. */
 export interface AssistantModel {
@@ -42,6 +50,9 @@ export class AssistantModelError extends Error {
   }
 }
 
+/** The user stopped the answer before it was ready. */
+export class AssistantStoppedError extends Error {}
+
 const TIMEOUT_MS = 90_000;
 /** Answers are short; the margin is for reasoning models, whose thinking counts here too. */
 const MAX_OUTPUT_TOKENS = 8000;
@@ -60,15 +71,12 @@ export class OpenAiAssistantModel implements AssistantModel {
     let response: OpenAI.Responses.Response;
 
     try {
-      response = await this.client.responses.create({
-        model: this.config.model,
-        instructions: request.instructions,
-        input: request.items.map(inputItem),
-        tools: request.tools.map(functionTool),
-        max_output_tokens: MAX_OUTPUT_TOKENS,
-        store: false,
-      });
+      response = await this.stream(request);
     } catch (error) {
+      if (request.signal?.aborted) {
+        throw new AssistantStoppedError();
+      }
+
       if (error instanceof OpenAI.APIError) {
         throw new AssistantModelError(errorMessage(error.status), error.status);
       }
@@ -81,6 +89,32 @@ export class OpenAiAssistantModel implements AssistantModel {
       .map((call) => ({ callId: call.call_id, name: call.name, arguments: call.arguments }));
 
     return { text: response.output_text.trim(), calls };
+  }
+
+  /** Streams the response, so the chat can show the answer while it is written. */
+  private async stream(request: ModelRequest) {
+    const stream = this.client.responses.stream(
+      {
+        model: this.config.model,
+        instructions: request.instructions,
+        input: request.items.map(inputItem),
+        tools: request.tools.map(functionTool),
+        max_output_tokens: MAX_OUTPUT_TOKENS,
+        store: false,
+      },
+      { signal: request.signal },
+    );
+
+    let text = "";
+
+    for await (const event of stream) {
+      if (event.type === "response.output_text.delta") {
+        text += event.delta;
+        request.onText?.(text);
+      }
+    }
+
+    return stream.finalResponse();
   }
 }
 

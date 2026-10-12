@@ -109,6 +109,7 @@ function nutritionActions(deps: NutritionDeps) {
 function nutritionDay(deps: NutritionDeps) {
   return defineTool({
     name: "nutrition_day",
+    progress: "Смотрю дневник питания…",
     description:
       "The food diary of a day: meals with dishes, calories and macros eaten, the daily targets, what is left to eat, and workouts with calories burned (they do not change the targets).",
     parameters: z.strictObject({ date: fields.date }),
@@ -124,6 +125,7 @@ function nutritionDay(deps: NutritionDeps) {
 function nutritionHistory(deps: NutritionDeps) {
   return defineTool({
     name: "nutrition_history",
+    progress: "Смотрю историю питания…",
     description:
       "Calories and macros eaten per day of a month, number of meals and calories burned in workouts, with the daily calorie target.",
     parameters: z.strictObject({ month: fields.month }),
@@ -144,6 +146,7 @@ function nutritionHistory(deps: NutritionDeps) {
 function weightHistory(deps: NutritionDeps) {
   return defineTool({
     name: "weight_history",
+    progress: "Смотрю вес…",
     description: `Body weight log, oldest first (the last ${WEIGHT_ENTRIES} weigh-ins), the current weight and its change over 7 and 30 days.`,
     parameters: z.strictObject({}),
 
@@ -165,6 +168,7 @@ function weightHistory(deps: NutritionDeps) {
 function nutritionProfile(deps: NutritionDeps) {
   return defineTool({
     name: "nutrition_profile",
+    progress: "Смотрю нормы…",
     description:
       "Body data, goal (lose, maintain or gain weight) and the daily targets of calories, protein, fat and carbohydrates.",
     parameters: z.strictObject({}),
@@ -192,6 +196,7 @@ function nutritionProfile(deps: NutritionDeps) {
 function logMeal(deps: NutritionDeps) {
   return defineTool({
     name: "log_meal",
+    progress: "Распознаю еду…",
     description:
       "Recognizes what was eaten from the description and/or the attached photo and saves it to the food diary right away (the user can undo it). Use it whenever the user tells or shows what they ate.",
     parameters: z.strictObject({
@@ -254,6 +259,7 @@ function logMeal(deps: NutritionDeps) {
 function addWorkout(deps: NutritionDeps) {
   return defineTool({
     name: "add_workout",
+    progress: "Записываю тренировку…",
     description:
       "Records a workout with the calories burned right away (the user can undo it). The calories come from the user or their watch.",
     parameters: z.strictObject({
@@ -298,6 +304,7 @@ function addWorkout(deps: NutritionDeps) {
 function recordWeight(deps: NutritionDeps) {
   return defineTool({
     name: "record_weight",
+    progress: "Записываю вес…",
     description:
       "Records the body weight of a day right away; a second weigh-in on the same day replaces the first. The latest weigh-in becomes the profile weight and the targets follow it.",
     parameters: z.strictObject({
@@ -345,6 +352,7 @@ function recordWeight(deps: NutritionDeps) {
 function deleteMeal(deps: NutritionDeps) {
   return defineTool({
     name: "delete_meal",
+    progress: "Готовлю удаление…",
     description:
       "Deletes a meal found with nutrition_day. Nothing is deleted until the user taps «Подтвердить».",
     parameters: z.strictObject({ mealId: z.string() }),
@@ -373,6 +381,7 @@ function deleteMeal(deps: NutritionDeps) {
 function deleteWorkout(deps: NutritionDeps) {
   return defineTool({
     name: "delete_workout",
+    progress: "Готовлю удаление…",
     description:
       "Deletes a workout found with nutrition_day. Nothing is deleted until the user taps «Подтвердить».",
     parameters: z.strictObject({ workoutId: z.string() }),
@@ -403,6 +412,7 @@ function deleteWorkout(deps: NutritionDeps) {
 function deleteWeight(deps: NutritionDeps) {
   return defineTool({
     name: "delete_weight",
+    progress: "Готовлю удаление…",
     description:
       "Deletes the weigh-in of a day. Nothing is deleted until the user taps «Подтвердить».",
     parameters: z.strictObject({ date: z.string().describe("yyyy-MM-dd of the weigh-in") }),

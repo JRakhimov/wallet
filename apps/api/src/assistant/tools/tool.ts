@@ -38,6 +38,8 @@ export type ToolContext = {
 
 export type AssistantTool = {
   name: string;
+  /** What the chat shows while the tool runs, e.g. "Ищу операции…". */
+  progress: string;
   description: string;
   parameters: z.ZodObject;
   run(context: ToolContext, args: unknown): Promise<unknown>;
@@ -55,6 +57,7 @@ export class ToolError extends Error {}
 /** Keeps `run` typed by its schema. */
 export function defineTool<S extends z.ZodObject>(tool: {
   name: string;
+  progress: string;
   description: string;
   parameters: S;
   run(context: ToolContext, args: z.infer<S>): Promise<unknown>;

@@ -30,6 +30,7 @@ export function overviewTools(deps: OverviewDeps): Toolset {
 function getOverview(deps: OverviewDeps) {
   return defineTool({
     name: "get_overview",
+    progress: "Смотрю, как дела…",
     description:
       "A snapshot of everything as of now: account balances, this month's spending, income and budget, subscriptions charged soon, overdue and today's tasks, calories eaten today against the target, current weight. Use it for general questions and when unsure where to look.",
     parameters: z.strictObject({}),

@@ -6,6 +6,7 @@ import { ActionsService } from "../src/assistant/actions.service";
 import {
   AssistantModel,
   AssistantModelError,
+  AssistantStoppedError,
   ModelAnswer,
   ModelRequest,
   TurnItem,
@@ -24,6 +25,7 @@ import { SpeechToText } from "../src/voice/speech-to-text";
 const tools: AssistantTool[] = [
   defineTool({
     name: "add_thing",
+    progress: "Делаю add_thing…",
     description: "Records a thing right away",
     parameters: z.strictObject({ value: z.number() }),
     async run(context, args) {
@@ -41,6 +43,7 @@ const tools: AssistantTool[] = [
   }),
   defineTool({
     name: "change_thing",
+    progress: "Делаю change_thing…",
     description: "Changes a thing after a confirmation",
     parameters: z.strictObject({ value: z.number() }),
     async run(context, args) {
@@ -51,6 +54,7 @@ const tools: AssistantTool[] = [
   }),
   defineTool({
     name: "refuse_thing",
+    progress: "Делаю refuse_thing…",
     description: "Always refuses the arguments",
     parameters: z.strictObject({}),
     async run() {
@@ -59,6 +63,7 @@ const tools: AssistantTool[] = [
   }),
   defineTool({
     name: "crash_thing",
+    progress: "Делаю crash_thing…",
     description: "Breaks on our side",
     parameters: z.strictObject({}),
     async run() {
@@ -74,8 +79,10 @@ const call = (name: string, args: unknown = {}, callId = `call-${name}`): ModelA
 const answer = (text: string): ModelAnswer => ({ text, calls: [] });
 
 /** The assistant with a scripted model and in-memory stand-ins for everything else. */
+type Step = ModelAnswer | Error | ((request: ModelRequest) => ModelAnswer);
+
 function setup(
-  script: (ModelAnswer | Error)[] | (() => ModelAnswer),
+  script: Step[] | (() => ModelAnswer),
   options: { turnsToday?: number; transcript?: string } = {},
 ) {
   const requests: ModelRequest[] = [];
@@ -89,7 +96,8 @@ function setup(
       if (next instanceof Error) {
         throw next;
       }
-      return next;
+
+      return typeof next === "function" ? next(request) : next;
     },
   };
   const speech: SpeechToText = { transcribe: async () => options.transcript ?? "" };
@@ -285,20 +293,19 @@ test("a model that keeps calling tools is stopped", async () => {
 });
 
 test("a voice message is transcribed first and marked as voice", async () => {
-  const stages: string[] = [];
+  const progress: string[] = [];
   const { service, requests } = setup([answer("Ок")], { transcript: "обед сорок пять тысяч" });
 
   await service.reply(
     message({
       text: "",
       audio: { data: Buffer.from("x"), filename: "voice.ogg" },
-      onStage: async (stage) => {
-        stages.push(stage);
-      },
+      onProgress: (text) => progress.push(text),
     }),
   );
 
-  assert.deepEqual(stages, ["recognizing", "thinking"]);
+  // An empty progress is the chat's own "thinking" placeholder.
+  assert.deepEqual(progress, ["Распознаём голос…", ""]);
   assert.deepEqual(requests[0].items.at(-1), {
     type: "user",
     text: "[Голосовое сообщение] обед сорок пять тысяч",
@@ -385,4 +392,49 @@ test("the history drops photos, cuts long results and starts after /new", async 
   ]);
   assert.equal(queries[0].where.createdAt.gte, restartedAt);
   assert.equal(queries[0].take, 10);
+});
+
+test("the chat sees what the assistant does and the answer as it is written", async () => {
+  const progress: string[] = [];
+  const written: string[] = [];
+  const { service, requests } = setup([
+    call("add_thing", { value: 1 }),
+    (request) => {
+      request.onText!("В октябре");
+      request.onText!("В октябре 3 800 000 сум");
+      return answer("В октябре 3 800 000 сум");
+    },
+  ]);
+  const stop = new AbortController();
+
+  await service.reply(
+    message({
+      signal: stop.signal,
+      onProgress: (text) => progress.push(text),
+      onText: (text) => written.push(text),
+    }),
+  );
+
+  assert.deepEqual(progress, ["", "Делаю add_thing…", ""]);
+  assert.deepEqual(written, ["В октябре", "В октябре 3 800 000 сум"]);
+  assert.equal(requests[0].signal, stop.signal);
+});
+
+test("a stopped answer keeps what was written and what was recorded", async () => {
+  const stopped = setup([
+    (request) => {
+      request.onText!("В октябре потрачено");
+      throw new AssistantStoppedError();
+    },
+  ]);
+  const partial = await stopped.service.reply(message());
+
+  assert.equal(partial.text, "В октябре потрачено\n\n⏹ Остановлено");
+  assert.deepEqual(stopped.saved[0].at(-1), { type: "assistant", text: partial.text });
+
+  const afterRecord = setup([call("add_thing", { value: 2 }), new AssistantStoppedError()]);
+  const recorded = await afterRecord.service.reply(message());
+
+  assert.equal(recorded.text, "Записано: 2 (telegram-9-1)\n\n⏹ Остановлено");
+  assert.deepEqual(recorded.buttons, [[{ text: "↩️ Отменить", data: "act:id-0" }]]);
 });

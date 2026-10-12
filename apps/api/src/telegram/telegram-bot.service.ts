@@ -13,13 +13,13 @@ import {
   AssistantError,
   AssistantReply,
   AssistantService,
-  AssistantStage,
   ChatInput,
 } from "../assistant/assistant.service";
 import { AppConfig, CONFIG } from "../config/app-config";
 import { PrismaService } from "../prisma/prisma.service";
 import { ALL_DAY_REMIND_HOUR } from "../tasks/recurrence";
 import { TasksService } from "../tasks/tasks.service";
+import { DraftMessage } from "./draft-message";
 
 /** A voice message or an audio file; both carry speech. */
 type SpeechFile = { file_id: string; file_size?: number; duration?: number; file_name?: string };
@@ -60,12 +60,13 @@ export type Update = {
   update_id: number;
   message?: Message;
   callback_query?: CallbackQuery;
+  stopped_message_generation?: GenerationStopped;
 };
 
 type TaskAction = "done" | "hour" | "tomorrow";
 
-/** The message that shows the progress of an answer and then turns into the answer. */
-type Status = { chatId: number; messageId?: number; text?: string };
+/** The user tapped the stop button of a draft. */
+type GenerationStopped = { chat: { id: number }; draft_id: number };
 
 /** Buttons under a task reminder; the bot handles them in handleCallback. */
 export function taskButtons(taskId: string): InlineButton[][] {
@@ -78,7 +79,7 @@ export function taskButtons(taskId: string): InlineButton[][] {
   ];
 }
 
-const ALLOWED_UPDATES = ["message", "callback_query"];
+const ALLOWED_UPDATES = ["message", "callback_query", "stopped_message_generation"];
 const POLL_TIMEOUT_SECONDS = 30;
 const RETRY_DELAY_MS = 5000;
 const START_COMMAND = /^\/start(?:@[A-Za-z0-9_]+)?(?:\s|$)/;
@@ -129,11 +130,8 @@ const ACCESS_GRANTED_TEXT = "Вам открыт доступ. Нажмите /s
 const NEW_CHAT_TEXT = "Начнём заново. Что нужно сделать или узнать?";
 const ACCEPTED_TEXT = "Принято в обработку…";
 const PHOTO_TEXT = "Смотрю фото…";
-const STAGE_TEXTS: Record<AssistantStage, string> = {
-  recognizing: "Распознаём голос…",
-  thinking: "Думаю…",
-};
-const FAILED_STATUS = "Не получилось";
+/** An empty draft shows Telegram's own "Thinking…" placeholder. */
+const THINKING = "";
 const FAILED_TEXT = "Не удалось обработать сообщение. Попробуйте ещё раз";
 const NOT_CONFIGURED_TEXT = "Ассистент не настроен на сервере.";
 const NOTHING_RECORDED = "Ничего не записано.";
@@ -165,6 +163,8 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
   private task?: Promise<void>;
   /** Tail of the webhook queue: updates are handled one at a time, in arrival order. */
   private queue: Promise<void> = Promise.resolve();
+  /** Answers being prepared, by chat and draft, so a stop button can abort them. */
+  private readonly generations = new Map<string, AbortController>();
 
   constructor(
     private readonly db: PrismaService,
@@ -216,6 +216,12 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
    * minute, and Telegram resends updates it gets no answer to. Repeats are skipped anyway.
    */
   enqueue(update: Update) {
+    // A stop must reach the answer that is being prepared now, not wait behind it.
+    if (update.stopped_message_generation) {
+      this.stopGeneration(update.stopped_message_generation);
+      return this.queue;
+    }
+
     this.queue = this.queue.then(() =>
       this.handleUpdate(update).catch((error: unknown) => {
         // The error may carry request URLs with the bot token: log only its type.
@@ -229,6 +235,11 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
 
   /** Handles one update. Each update is answered at most once, even after restarts. */
   async handleUpdate(update: Update) {
+    if (update.stopped_message_generation) {
+      this.stopGeneration(update.stopped_message_generation);
+      return;
+    }
+
     if (update.callback_query) {
       await this.handleCallback(update.update_id, update.callback_query);
       return;
@@ -370,44 +381,78 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
   }
 
   /**
-   * Answers a message in one chat message that shows the progress and then becomes the answer.
-   * A failure turns it into "Не получилось" and sends the reason separately, with sound, so
-   * the person notices even if they have left the chat.
+   * Answers a message. While the answer is prepared and written, the chat shows it as a draft
+   * (with the progress and a stop button); the finished answer comes as a normal message. A
+   * failure is sent with sound, so the person notices even if they have left the chat.
    */
   private async handleChat(message: Message, updateId: number) {
-    const status: Status = { chatId: message.chat.id };
+    const chatId = message.chat.id;
     const speech = message.voice ?? message.audio;
 
     if (!this.assistant.enabled) {
-      await this.fail(status, `${NOT_CONFIGURED_TEXT}\n${NOTHING_RECORDED}`);
+      await this.send(chatId, `${NOT_CONFIGURED_TEXT}\n${NOTHING_RECORDED}`, false);
       return;
     }
 
     if (speech && isTooLong(speech)) {
-      await this.fail(status, `${VOICE_TOO_LONG_TEXT}\n${NOTHING_RECORDED}`);
+      await this.send(chatId, `${VOICE_TOO_LONG_TEXT}\n${NOTHING_RECORDED}`, false);
       return;
     }
 
-    await this.showStatus(status, firstStatus(message));
+    const draft = this.draftFor(chatId, updateId);
+    const stop = new AbortController();
+    const generation = generationKey(chatId, updateId);
+
+    this.generations.set(generation, stop);
+    draft.show(firstProgress(message));
 
     try {
       const input = await this.chatInput(message, updateId);
       const reply = await this.assistant.reply({
         ...input,
-        onStage: (stage) => this.showStatus(status, STAGE_TEXTS[stage]),
+        signal: stop.signal,
+        onProgress: (text) => draft.show(text),
+        onText: (text) => draft.show(text),
       });
 
-      await this.showReply(status, reply);
+      await draft.close();
+      await this.sendReply(chatId, reply);
     } catch (error) {
+      await draft.close();
+
       if (error instanceof AssistantError) {
-        await this.fail(status, `${error.message}\n${NOTHING_RECORDED}`);
+        await this.send(chatId, `${error.message}\n${NOTHING_RECORDED}`, false);
         return;
       }
 
       // The error may carry request URLs with the bot token: log only its type.
       this.logger.error(`Chat message failed: ${error instanceof Error ? error.name : "unknown"}`);
-      await this.fail(status, FAILED_TEXT);
+      await this.send(chatId, FAILED_TEXT, false);
+    } finally {
+      this.generations.delete(generation);
     }
+  }
+
+  /**
+   * The draft of an answer; its id is the update's id. The stop button needs the webhook:
+   * by polling, the tap would only arrive after the answer it should stop.
+   */
+  private draftFor(chatId: number, draftId: number) {
+    const canStop = Boolean(this.config.webhook);
+
+    return new DraftMessage(async (text) => {
+      await this.call("sendMessageDraft", {
+        chat_id: chatId,
+        draft_id: draftId,
+        text,
+        ...(canStop && { can_stop: true }),
+      });
+    });
+  }
+
+  /** A tap on the draft's stop button. */
+  private stopGeneration(stopped: GenerationStopped) {
+    this.generations.get(generationKey(stopped.chat.id, stopped.draft_id))?.abort();
   }
 
   /** The message for the assistant, with the voice or the photo downloaded. */
@@ -446,17 +491,8 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
     return { full: fullFile.data, thumbnail: thumbnailFile.data };
   }
 
-  /** Shows a stage of the work; the same text again is not sent. */
-  private async showStatus(status: Status, text: string) {
-    if (status.text === text) {
-      return;
-    }
-
-    await this.showInStatus(status, text, []);
-  }
-
-  /** The answer replaces the status; a long one continues in more messages, buttons go last. */
-  private async showReply(status: Status, reply: AssistantReply) {
+  /** The answer; a long one is split into several messages, the buttons go under the last. */
+  private async sendReply(chatId: number, reply: AssistantReply) {
     const parts = splitText(reply.text, MAX_MESSAGE_LENGTH);
     const keyboard = reply.buttons.map((row) =>
       row.map((button) => ({ text: button.text, callback_data: button.data })),
@@ -465,40 +501,8 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
     for (const [index, part] of parts.entries()) {
       const buttons = index === parts.length - 1 ? keyboard : [];
 
-      if (index === 0) {
-        await this.showInStatus(status, part, buttons);
-      } else {
-        await this.send(status.chatId, part, true, buttons);
-      }
+      await this.send(chatId, part, true, buttons);
     }
-  }
-
-  private async showInStatus(status: Status, text: string, buttons: InlineButton[][]) {
-    status.text = text;
-
-    if (status.messageId) {
-      try {
-        await this.call("editMessageText", {
-          chat_id: status.chatId,
-          message_id: status.messageId,
-          text,
-          ...(buttons.length > 0 && { reply_markup: { inline_keyboard: buttons } }),
-        });
-        return;
-      } catch {
-        // Edit failed (e.g. the message was deleted): send a new one instead.
-      }
-    }
-
-    status.messageId = await this.send(status.chatId, text, true, buttons);
-  }
-
-  private async fail(status: Status, reason: string) {
-    if (status.messageId) {
-      await this.showStatus(status, FAILED_STATUS);
-    }
-
-    await this.send(status.chatId, reason, false);
   }
 
   /** Sends a message; returns its id, or undefined if Telegram refused. */
@@ -731,13 +735,17 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
   }
 }
 
-/** What the status says before the work starts. */
-function firstStatus(message: Message) {
+/** What the draft says before the work starts. */
+function firstProgress(message: Message) {
   if (message.voice ?? message.audio) {
     return ACCEPTED_TEXT;
   }
 
-  return message.photo ? PHOTO_TEXT : STAGE_TEXTS.thinking;
+  return message.photo ? PHOTO_TEXT : THINKING;
+}
+
+function generationKey(chatId: number, draftId: number) {
+  return `${chatId}:${draftId}`;
 }
 
 /** Text that is not a /command. */
