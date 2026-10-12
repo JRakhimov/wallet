@@ -43,7 +43,7 @@ export class DraftMessage {
     private readonly timing: DraftTiming = DEFAULT_TIMING,
   ) {}
 
-  /** Shows a progress line; an empty one shows Telegram's "Thinking…" placeholder. */
+  /** Shows a progress line, e.g. "Ищу операции…". */
   status(text: string) {
     if (this.closed || (this.wanted?.kind === "status" && this.wanted.text === text)) {
       return;

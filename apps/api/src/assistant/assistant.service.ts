@@ -18,6 +18,7 @@ import { HistoryService } from "./history.service";
 import { MemoryService } from "./memory.service";
 import { contextNote, SYSTEM_PROMPT } from "./prompt";
 import { AssistantSettingsService } from "./settings.service";
+import { thinkingText } from "./thinking";
 import { AssistantToolbox } from "./tools/toolbox";
 import { ChatPhoto, Offer, ToolContext, ToolError } from "./tools/tool";
 
@@ -51,8 +52,6 @@ const DAILY_LIMIT = 200;
 const MAX_TEXT = 4000;
 const MAX_LABEL = 24;
 
-/** Progress shown while the model thinks: the chat shows its own "thinking" placeholder. */
-const THINKING = "";
 const RECOGNIZING_TEXT = "Распознаём голос…";
 const STOPPED_TEXT = "⏹ Остановлено";
 const SEARCHING_TEXT = "Ищу в интернете…";
@@ -98,7 +97,7 @@ export class AssistantService {
 
     const userText = await this.userText(input);
 
-    input.onProgress?.(THINKING);
+    input.onProgress?.(thinkingText());
 
     const owner = await this.owners.ensureOwner(input.telegramId);
     const now = DateTime.now().setZone(owner.timezone);
@@ -298,7 +297,7 @@ export class AssistantService {
         await this.runCalls(answer.calls, turn, context);
 
         written = "";
-        input.onProgress?.(THINKING);
+        input.onProgress?.(thinkingText());
       }
 
       this.logger.warn("The assistant reached the step limit");
@@ -330,7 +329,7 @@ export class AssistantService {
       .map((call) => this.toolbox.tools.tools.get(call.name))
       .find((found) => found !== undefined);
 
-    return tool?.progress ?? THINKING;
+    return tool?.progress ?? thinkingText();
   }
 
   /** Runs the calls one by one: records keep their order and their idempotency keys. */

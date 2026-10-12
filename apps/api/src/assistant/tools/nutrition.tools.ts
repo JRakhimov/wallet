@@ -170,7 +170,7 @@ function nutritionProfile(deps: NutritionDeps) {
     name: "nutrition_profile",
     progress: "Смотрю нормы…",
     description:
-      "Body data, goal (lose, maintain or gain weight) and the daily targets of calories, protein, fat and carbohydrates.",
+      "The user's personal data: sex, age, height, weight, activity level and goal (lose, maintain or gain weight), plus the daily targets of calories, protein, fat and carbohydrates. Use it for questions about the user themselves, not only about food.",
     parameters: z.strictObject({}),
 
     async run(context) {

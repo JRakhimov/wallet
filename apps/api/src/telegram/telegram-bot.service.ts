@@ -65,6 +65,14 @@ export type Update = {
 
 type TaskAction = "done" | "hour" | "tomorrow";
 
+type TelegramTask = NonNullable<Awaited<ReturnType<TasksService["findForTelegram"]>>>;
+
+/** What a button tap did: `outcome` goes to the popup, `text` replaces the message. */
+type TapResult = { outcome: string; text: string };
+
+/** A refused Telegram request; the message never contains the bot token. */
+class TelegramError extends Error {}
+
 /** The user tapped the stop button of a draft. */
 type GenerationStopped = { chat: { id: number }; draft_id: number };
 
@@ -130,8 +138,6 @@ const ACCESS_GRANTED_TEXT = "Вам открыт доступ. Нажмите /s
 const NEW_CHAT_TEXT = "Начнём заново. Что нужно сделать или узнать?";
 const ACCEPTED_TEXT = "Принято в обработку…";
 const PHOTO_TEXT = "Смотрю фото…";
-/** An empty draft shows Telegram's own "Thinking…" placeholder. */
-const THINKING = "";
 const FAILED_TEXT = "Не удалось обработать сообщение. Попробуйте ещё раз";
 const NOT_CONFIGURED_TEXT = "Ассистент не настроен на сервере.";
 const NOTHING_RECORDED = "Ничего не записано.";
@@ -405,7 +411,11 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
     const stop = new AbortController();
 
     this.generations.set(chatId, stop);
-    draft.status(firstProgress(message));
+
+    const first = firstProgress(message);
+    if (first) {
+      draft.status(first);
+    }
 
     try {
       const input = await this.chatInput(message, updateId);
@@ -605,11 +615,13 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
       return;
     }
 
-    let outcome: string;
+    const original = query.message?.text ?? "";
+    let result: TapResult;
+
     try {
-      outcome = task
-        ? await this.runTaskAction(sender, task[1] as TaskAction, task[2])
-        : await this.assistant.resolveAction(sender, action![2], !action![1]);
+      result = task
+        ? await this.runTaskAction(sender, task[1] as TaskAction, task[2], original)
+        : await this.runAction(sender, action![2], !action![1], original);
     } catch {
       this.logger.warn("Button tap failed");
       await this.db.botUpdate.delete({ where: { updateId: BigInt(updateId) } });
@@ -617,29 +629,52 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
       return;
     }
 
-    await this.answerCallback(query.id, outcome);
+    await this.answerCallback(query.id, result.outcome);
 
     if (query.message) {
       const buttons = task
         ? this.appButtons(["tasks"])
         : otherButtons(query.message.reply_markup?.inline_keyboard ?? [], action![2]);
 
-      await this.call("editMessageText", {
-        chat_id: query.message.chat.id,
-        message_id: query.message.message_id,
-        text: [query.message.text, outcome].filter(Boolean).join("\n\n"),
-        reply_markup: { inline_keyboard: buttons },
-      }).catch(() => this.logger.warn("Could not update the message after a tap"));
+      await this.updateTappedMessage(query.message, result.text, buttons);
     }
   }
 
-  /** Applies a task button and returns what happened, e.g. "⏰ Напомню в 15:30". */
-  private async runTaskAction(sender: bigint, action: TaskAction, taskId: string) {
+  /** Applies a button of the assistant; the outcome is added under its answer. */
+  private async runAction(
+    sender: bigint,
+    actionId: string,
+    confirmed: boolean,
+    original: string,
+  ): Promise<TapResult> {
+    const outcome = await this.assistant.resolveAction(sender, actionId, confirmed);
+
+    return { outcome, text: withOutcome(original, outcome) };
+  }
+
+  /**
+   * Applies a task button. The reminder is rewritten to say what happened, e.g.
+   * "⏰ Напомню через час, в 15:30: Позвонить в банк".
+   */
+  private async runTaskAction(
+    sender: bigint,
+    action: TaskAction,
+    taskId: string,
+    original: string,
+  ): Promise<TapResult> {
     const task = await this.tasks.findForTelegram(sender, taskId);
     if (!task) {
-      return TASK_GONE_TEXT;
+      return { outcome: TASK_GONE_TEXT, text: withOutcome(original, TASK_GONE_TEXT) };
     }
 
+    const outcome = await this.applyTaskAction(task, action);
+    const text = [`${outcome}: ${task.title}`, task.note].filter(Boolean).join("\n\n");
+
+    return { outcome, text };
+  }
+
+  /** Completes or puts off the task and returns what happened, e.g. "⏰ Напомню завтра в 10:00". */
+  private async applyTaskAction(task: TelegramTask, action: TaskAction) {
     const ownerId = task.owner.id;
     const now = DateTime.now().setZone(task.owner.timezone);
 
@@ -654,18 +689,53 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
 
     if (action === "hour") {
       const until = now.plus({ hours: SNOOZE_HOURS });
+
       await this.tasks.snooze(ownerId, task.id, until.toJSDate());
 
-      return `⏰ Напомню в ${until.toFormat("HH:mm")}`;
+      return `⏰ Напомню через час, в ${until.toFormat("HH:mm")}`;
     }
 
     const [hour, minute] = task.dueTime
       ? task.dueTime.split(":").map(Number)
       : [ALL_DAY_REMIND_HOUR, 0];
     const until = now.plus({ days: 1 }).set({ hour, minute, second: 0, millisecond: 0 });
+
     await this.tasks.snooze(ownerId, task.id, until.toJSDate());
 
     return `⏰ Напомню завтра в ${until.toFormat("HH:mm")}`;
+  }
+
+  /**
+   * Rewrites a message after a tap. If Telegram refuses the new buttons, the text still
+   * changes and the old buttons go away, so they cannot be tapped again.
+   */
+  private async updateTappedMessage(
+    message: NonNullable<CallbackQuery["message"]>,
+    text: string,
+    buttons: InlineButton[][],
+  ) {
+    const edit = (keyboard: InlineButton[][]) =>
+      this.call("editMessageText", {
+        chat_id: message.chat.id,
+        message_id: message.message_id,
+        text,
+        reply_markup: { inline_keyboard: keyboard },
+      });
+
+    try {
+      await edit(buttons);
+      return;
+    } catch (error) {
+      this.logger.warn(`Could not update the message after a tap: ${errorText(error)}`);
+    }
+
+    if (buttons.length === 0) {
+      return;
+    }
+
+    await edit([]).catch((error) =>
+      this.logger.warn(`Could not update the message without buttons: ${errorText(error)}`),
+    );
   }
 
   private async answerCallback(queryId: string, text?: string) {
@@ -743,22 +813,28 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
       body: JSON.stringify(body),
       signal: AbortSignal.any([this.stop.signal, AbortSignal.timeout(timeoutMs)]),
     });
-    const result = (await response.json()) as { ok: boolean; result: T };
-    // Do not log fetch errors or URLs: they can contain the bot token.
+    const result = (await response.json()) as { ok: boolean; result: T; description?: string };
+
+    // Do not log fetch errors or URLs: they can contain the bot token. The description is
+    // Telegram's own text, e.g. "Bad Request: message is not modified".
     if (!response.ok || !result.ok) {
-      throw new Error("Telegram request failed");
+      throw new TelegramError(`${method}: ${result.description ?? response.status}`);
     }
+
     return result.result;
   }
 }
 
-/** What the draft says before the work starts. */
+/**
+ * What the draft says while a voice or a photo is downloaded. A text needs no download: the
+ * assistant shows its thinking line right away.
+ */
 function firstProgress(message: Message) {
   if (message.voice ?? message.audio) {
     return ACCEPTED_TEXT;
   }
 
-  return message.photo ? PHOTO_TEXT : THINKING;
+  return message.photo ? PHOTO_TEXT : null;
 }
 
 /** Text that is not a /command. */
@@ -772,6 +848,16 @@ function isTooLong(speech: SpeechFile) {
 
 function longSide(size: PhotoSize) {
   return Math.max(size.width, size.height);
+}
+
+/** The message with the outcome of a tap added under it. */
+function withOutcome(text: string, outcome: string) {
+  return [text, outcome].filter(Boolean).join("\n\n");
+}
+
+/** Only Telegram's own errors are logged with details: others may carry the bot token. */
+function errorText(error: unknown) {
+  return error instanceof TelegramError ? error.message : "request failed";
 }
 
 /** The buttons of a message without the ones of a handled action. */

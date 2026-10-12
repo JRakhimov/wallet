@@ -275,7 +275,7 @@ test("a voice message shows a draft at once, is answered once and gets the answe
   const telegram = mockTelegram(t);
   const { assistant, inputs } = fakeAssistant(async (input) => {
     input.onProgress!("Распознаём голос…");
-    input.onProgress!("");
+    input.onProgress!("Думаю…");
 
     return {
       text: "Расход 45 000 сум за обед записан · Кафе",
@@ -304,16 +304,17 @@ test("a voice message shows a draft at once, is answered once and gets the answe
   assert.equal(inputs[0].photo, null);
 });
 
-test("a text message shows Telegram's thinking placeholder, then the answer", async (t) => {
+test("a text message shows the assistant's thinking line, then the answer", async (t) => {
   const telegram = mockTelegram(t);
-  const { assistant, inputs } = fakeAssistant(async () => ({
-    text: "В октябре потрачено 3 800 000 сум",
-    buttons: [],
-  }));
+  const { assistant, inputs } = fakeAssistant(async (input) => {
+    input.onProgress!("Думаю…");
+
+    return { text: "В октябре потрачено 3 800 000 сум", buttons: [] };
+  });
 
   await chatBot(assistant).handleUpdate(textUpdate);
 
-  assert.deepEqual(telegram.drafts(), [{ chat_id: 123, draft_id: 1, text: "" }]);
+  assert.deepEqual(telegram.drafts(), [{ chat_id: 123, draft_id: 1, text: "Думаю…" }]);
   assert.deepEqual(telegram.sent(), ["В октябре потрачено 3 800 000 сум"]);
   assert.equal(telegram.of("sendMessage")[0].body.reply_markup, undefined);
   assert.equal(inputs[0].text, "сколько я потратил?");
@@ -421,6 +422,7 @@ test("in webhook mode the draft has a stop button, and a tap aborts the answer a
     started = resolve;
   });
   const { assistant } = fakeAssistant(async (input) => {
+    input.onProgress!("Думаю…");
     started();
     await new Promise((resolve) => input.signal!.addEventListener("abort", resolve));
 
@@ -437,7 +439,9 @@ test("in webhook mode the draft has a stop button, and a tap aborts the answer a
   });
   await answered;
 
-  assert.deepEqual(telegram.drafts(), [{ chat_id: 123, draft_id: 1, text: "", can_stop: true }]);
+  assert.deepEqual(telegram.drafts(), [
+    { chat_id: 123, draft_id: 1, text: "Думаю…", can_stop: true },
+  ]);
   assert.deepEqual(telegram.sent(), ["⏹ Остановлено"]);
 });
 
@@ -598,13 +602,22 @@ function callbackUpdate(updateId: number, data: string, from = 123) {
   };
 }
 
-function taskButtonsFixture(t: TestContext, repeat = "none") {
+/** `refusedOnce` lists methods Telegram refuses the first time they are called. */
+function taskButtonsFixture(t: TestContext, repeat = "none", refusedOnce: string[] = []) {
   const calls: { method: string; body: Record<string, unknown> }[] = [];
   const completed: string[] = [];
   const snoozed: Date[] = [];
+  const refused = new Set(refusedOnce);
 
   t.mock.method(globalThis, "fetch", async (url: string, options: RequestInit) => {
-    calls.push({ method: url.split("/").at(-1)!, body: JSON.parse(String(options.body)) });
+    const method = url.split("/").at(-1)!;
+
+    calls.push({ method, body: JSON.parse(String(options.body)) });
+
+    if (refused.delete(method)) {
+      return Response.json({ ok: false, description: "Bad Request" }, { status: 400 });
+    }
+
     return Response.json({ ok: true, result: true });
   });
 
@@ -616,6 +629,8 @@ function taskButtonsFixture(t: TestContext, repeat = "none") {
 
       return {
         id,
+        title: "Позвонить в банк",
+        note: "Номер в заметках",
         repeat,
         dueTime: "10:00",
         owner: { id: "owner", timezone: "Asia/Tashkent" },
@@ -640,7 +655,7 @@ function taskButtonsFixture(t: TestContext, repeat = "none") {
   return { bot, calls, completed, snoozed };
 }
 
-test("the Done button completes a one-off task once and replaces the buttons", async (t) => {
+test("the Done button completes a one-off task once and rewrites the reminder", async (t) => {
   const { bot, calls, completed } = taskButtonsFixture(t);
 
   await bot.handleUpdate(callbackUpdate(500, `task:done:${TASK_ID}`));
@@ -652,7 +667,7 @@ test("the Done button completes a one-off task once and replaces the buttons", a
     ["answerCallbackQuery", "editMessageText", "answerCallbackQuery"],
   );
   assert.equal(calls[0].body.text, "✅ Выполнено");
-  assert.equal(calls[1].body.text, "🔔 Позвонить в банк\n\n✅ Выполнено");
+  assert.equal(calls[1].body.text, "✅ Выполнено: Позвонить в банк\n\nНомер в заметках");
   assert.deepEqual(calls[1].body.reply_markup, {
     inline_keyboard: [[{ text: "📝 Задачи", web_app: { url: "https://tasks.example" } }]],
   });
@@ -670,8 +685,30 @@ test("a repeating task is not completed again; snooze buttons put the reminder o
 
   const inAnHour = Date.now() + 60 * 60 * 1000;
   assert.ok(Math.abs(snoozed[0].getTime() - inAnHour) < 5000);
-  assert.match(String(calls[2].body.text), /^⏰ Напомню в \d{2}:\d{2}$/);
+  assert.match(String(calls[2].body.text), /^⏰ Напомню через час, в \d{2}:\d{2}$/);
+  assert.match(
+    String(calls[3].body.text),
+    /^⏰ Напомню через час, в \d{2}:\d{2}: Позвонить в банк\n\nНомер в заметках$/,
+  );
   assert.equal(calls[4].body.text, "⏰ Напомню завтра в 10:00");
+  assert.equal(
+    calls[5].body.text,
+    "⏰ Напомню завтра в 10:00: Позвонить в банк\n\nНомер в заметках",
+  );
+});
+
+test("a reminder Telegram does not let rewrite with the app button loses its buttons", async (t) => {
+  const { bot, calls } = taskButtonsFixture(t, "none", ["editMessageText"]);
+
+  await bot.handleUpdate(callbackUpdate(504, `task:hour:${TASK_ID}`));
+
+  const edits = calls.filter((call) => call.method === "editMessageText");
+  assert.equal(edits.length, 2);
+  assert.match(
+    String(edits[1].body.text),
+    /^⏰ Напомню через час, в \d{2}:\d{2}: Позвонить в банк/,
+  );
+  assert.deepEqual(edits[1].body.reply_markup, { inline_keyboard: [] });
 });
 
 test("strangers' taps are ignored and someone else's task is not found", async (t) => {

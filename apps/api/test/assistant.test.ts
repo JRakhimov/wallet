@@ -16,6 +16,7 @@ import { HistoryService } from "../src/assistant/history.service";
 import { MemoryService } from "../src/assistant/memory.service";
 import { SYSTEM_PROMPT } from "../src/assistant/prompt";
 import { AssistantSettingsService, DEFAULT_SETTINGS } from "../src/assistant/settings.service";
+import { THINKING_TEXTS } from "../src/assistant/thinking";
 import { AssistantToolbox } from "../src/assistant/tools/toolbox";
 import { AssistantTool, defineTool, toolSpec, ToolError } from "../src/assistant/tools/tool";
 import { OwnerService } from "../src/owner/owner.service";
@@ -78,6 +79,11 @@ const call = (name: string, args: unknown = {}, callId = `call-${name}`): ModelA
   sources: [],
 });
 const answer = (text: string): ModelAnswer => ({ text, calls: [], sources: [] });
+
+/** Thinking lines are picked at random; tests compare them as one placeholder. */
+const THINKING = "<thinking>";
+const thinking = (progress: string[]) =>
+  progress.map((text) => (THINKING_TEXTS.includes(text) ? THINKING : text));
 
 /** The assistant with a scripted model and in-memory stand-ins for everything else. */
 type Step = ModelAnswer | Error | ((request: ModelRequest) => ModelAnswer);
@@ -308,8 +314,7 @@ test("a voice message is transcribed first and marked as voice", async () => {
     }),
   );
 
-  // An empty progress is the chat's own "thinking" placeholder.
-  assert.deepEqual(progress, ["Распознаём голос…", ""]);
+  assert.deepEqual(thinking(progress), ["Распознаём голос…", THINKING]);
   assert.deepEqual(requests[0].items.at(-1), {
     type: "user",
     text: "[Голосовое сообщение] обед сорок пять тысяч",
@@ -419,7 +424,7 @@ test("the chat sees what the assistant does and the answer as it is written", as
     }),
   );
 
-  assert.deepEqual(progress, ["", "Делаю add_thing…", ""]);
+  assert.deepEqual(thinking(progress), [THINKING, "Делаю add_thing…", THINKING]);
   assert.deepEqual(written, ["В октябре", "В октябре 3 800 000 сум"]);
   assert.equal(requests[0].signal, stop.signal);
 });
@@ -501,5 +506,5 @@ test("an answer from the web lists its sources, and the chat sees the search", a
     ].join("\n"),
   );
   assert.deepEqual(requests[0].webSearch, { timezone: "Asia/Tashkent" });
-  assert.deepEqual(progress, ["", "Ищу в интернете…"]);
+  assert.deepEqual(thinking(progress), [THINKING, "Ищу в интернете…"]);
 });
