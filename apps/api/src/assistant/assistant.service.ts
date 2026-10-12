@@ -389,10 +389,12 @@ function withSources(answer: ModelAnswer) {
     return answer.text;
   }
 
+  // A title becomes the text of a Markdown link, so brackets in it would break the link.
   const links = answer.sources.slice(0, MAX_SOURCES).map((source) => {
-    const title = shorten(source.title || new URL(source.url).hostname, MAX_SOURCE_TITLE);
+    const name = (source.title || new URL(source.url).hostname).replace(/[[\]\n]/g, " ");
+    const title = shorten(name.trim(), MAX_SOURCE_TITLE);
 
-    return `• ${title}: ${source.url}`;
+    return `• [${title}](${source.url})`;
   });
 
   return `${answer.text}\n\nИсточники:\n${links.join("\n")}`;

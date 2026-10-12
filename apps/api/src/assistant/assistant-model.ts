@@ -67,6 +67,19 @@ const MAX_OUTPUT_TOKENS = 8000;
 
 type InputItem = OpenAI.Responses.ResponseInputItem;
 
+/**
+ * Links OpenAI puts into the text where it cites a page, e.g.
+ * " ([afisha.uz](https://…?utm_source=openai))". The pages are listed under the answer anyway.
+ */
+const CITATION_LINK = String.raw`\[[^\]\n]*\]\([^)\s]*utm_source=openai[^)\s]*\)`;
+const INLINE_CITATIONS = new RegExp(
+  String.raw`\s*\((?:\s*${CITATION_LINK},?)+\s*\)|\s*${CITATION_LINK}`,
+  "g",
+);
+
+/** A link at the end of a text still being written: it may turn out to be a citation. */
+const LINK_IN_PROGRESS = /\s*\(?\[[^\]\n]*(\]\([^)\s]*)?$/;
+
 /** OpenAI Responses API with function calling. Nothing is stored on OpenAI's side. */
 export class OpenAiAssistantModel implements AssistantModel {
   private readonly client: OpenAI;
@@ -99,7 +112,11 @@ export class OpenAiAssistantModel implements AssistantModel {
       .filter((item) => item.type === "function_call")
       .map((call) => ({ callId: call.call_id, name: call.name, arguments: call.arguments }));
 
-    return { text: response.output_text.trim(), calls, sources: sourcesOf(response.output) };
+    return {
+      text: withoutCitations(response.output_text).trim(),
+      calls,
+      sources: sourcesOf(response.output),
+    };
   }
 
   /**
@@ -151,7 +168,9 @@ export class OpenAiAssistantModel implements AssistantModel {
     for await (const event of stream) {
       if (event.type === "response.output_text.delta") {
         text += event.delta;
-        request.onText?.(text);
+
+        const shown = withoutCitations(text).replace(LINK_IN_PROGRESS, "");
+        request.onText?.(shown);
       }
 
       if (event.type === "response.web_search_call.searching") {
@@ -178,14 +197,40 @@ export function sourcesOf(output: OpenAI.Responses.ResponseOutputItem[]) {
       }
 
       for (const annotation of part.annotations) {
-        if (annotation.type === "url_citation" && !sources.has(annotation.url)) {
-          sources.set(annotation.url, { title: annotation.title, url: annotation.url });
+        if (annotation.type !== "url_citation") {
+          continue;
+        }
+
+        const url = withoutTracking(annotation.url);
+
+        if (!sources.has(url)) {
+          sources.set(url, { title: annotation.title, url });
         }
       }
     }
   }
 
   return [...sources.values()];
+}
+
+/** The text without the links OpenAI puts in where it cites a page. */
+export function withoutCitations(text: string) {
+  return text.replace(INLINE_CITATIONS, "");
+}
+
+/** The URL without the parameter OpenAI adds to the pages it cites. */
+function withoutTracking(url: string) {
+  try {
+    const parsed = new URL(url);
+
+    if (parsed.searchParams.get("utm_source") === "openai") {
+      parsed.searchParams.delete("utm_source");
+    }
+
+    return parsed.toString();
+  } catch {
+    return url;
+  }
 }
 
 /** A 400 that names the web search tool: the model does not have it. */

@@ -20,6 +20,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { ALL_DAY_REMIND_HOUR } from "../tasks/recurrence";
 import { TasksService } from "../tasks/tasks.service";
 import { DraftMessage } from "./draft-message";
+import { toPlainText, toTelegramHtml } from "./telegram-markup";
 
 /** A voice message or an audio file; both carry speech. */
 type SpeechFile = { file_id: string; file_size?: number; duration?: number; file_name?: string };
@@ -50,6 +51,8 @@ type CallbackQuery = {
     message_id: number;
     chat: { id: number };
     text?: string;
+    /** The formatting of the text; kept when the outcome of a tap is added under it. */
+    entities?: unknown[];
     reply_markup?: { inline_keyboard: InlineButton[][] };
   };
 };
@@ -67,8 +70,11 @@ type TaskAction = "done" | "hour" | "tomorrow";
 
 type TelegramTask = NonNullable<Awaited<ReturnType<TasksService["findForTelegram"]>>>;
 
-/** What a button tap did: `outcome` goes to the popup, `text` replaces the message. */
-type TapResult = { outcome: string; text: string };
+/**
+ * What a button tap did: `outcome` goes to the popup, `text` replaces the message, with
+ * `entities` as its formatting.
+ */
+type TapResult = { outcome: string; text: string; entities?: unknown[] };
 
 /** A refused Telegram request; the message never contains the bot token. */
 class TelegramError extends Error {}
@@ -451,11 +457,13 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
   private draftFor(chatId: number) {
     const canStop = Boolean(this.config.webhook);
 
+    // The answer is still being written: an unclosed marker at its end is hidden for now.
     const sendDraft = async (draftId: number, text: string) => {
       await this.call("sendMessageDraft", {
         chat_id: chatId,
         draft_id: draftId,
-        text,
+        text: toTelegramHtml(text, true),
+        parse_mode: "HTML",
         ...(canStop && { can_stop: true }),
       });
     };
@@ -516,7 +524,10 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
     await this.sendReply(Number(telegramId), reply, !waits);
   }
 
-  /** The answer; a long one is split into several messages, the buttons go under the last. */
+  /**
+   * The answer; a long one is split into several messages, the buttons go under the last. The
+   * assistant's Markdown goes as HTML; if Telegram refuses it, the part goes as plain text.
+   */
   private async sendReply(chatId: number, reply: AssistantReply, silent = true) {
     const parts = splitText(reply.text, MAX_MESSAGE_LENGTH);
     const keyboard = reply.buttons.map((row) =>
@@ -526,7 +537,11 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
     for (const [index, part] of parts.entries()) {
       const buttons = index === parts.length - 1 ? keyboard : [];
 
-      await this.send(chatId, part, silent, buttons);
+      const sent = await this.send(chatId, toTelegramHtml(part), silent, buttons, "HTML");
+
+      if (sent === undefined) {
+        await this.send(chatId, toPlainText(part), silent, buttons);
+      }
     }
   }
 
@@ -536,19 +551,21 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
     text: string,
     silent: boolean,
     buttons: InlineButton[][] = [],
+    parseMode?: "HTML",
   ) {
     try {
       const sent = await this.call<{ message_id?: number }>("sendMessage", {
         chat_id: chatId,
         text,
+        ...(parseMode && { parse_mode: parseMode }),
         disable_notification: silent,
         // Sources under an answer would otherwise expand into a big card.
         link_preview_options: { is_disabled: true },
         ...(buttons.length > 0 && { reply_markup: { inline_keyboard: buttons } }),
       });
       return sent.message_id;
-    } catch {
-      this.logger.warn("Could not send a reply");
+    } catch (error) {
+      this.logger.warn(`Could not send a reply: ${errorText(error)}`);
       return undefined;
     }
   }
@@ -621,7 +638,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
     try {
       result = task
         ? await this.runTaskAction(sender, task[1] as TaskAction, task[2], original)
-        : await this.runAction(sender, action![2], !action![1], original);
+        : await this.runAction(sender, action![2], !action![1], query.message);
     } catch {
       this.logger.warn("Button tap failed");
       await this.db.botUpdate.delete({ where: { updateId: BigInt(updateId) } });
@@ -636,20 +653,27 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
         ? this.appButtons(["tasks"])
         : otherButtons(query.message.reply_markup?.inline_keyboard ?? [], action![2]);
 
-      await this.updateTappedMessage(query.message, result.text, buttons);
+      await this.updateTappedMessage(query.message, result, buttons);
     }
   }
 
-  /** Applies a button of the assistant; the outcome is added under its answer. */
+  /**
+   * Applies a button of the assistant. The outcome is added under its answer, which keeps its
+   * formatting: the outcome goes after the text, so the offsets of the entities still fit.
+   */
   private async runAction(
     sender: bigint,
     actionId: string,
     confirmed: boolean,
-    original: string,
+    message: CallbackQuery["message"],
   ): Promise<TapResult> {
     const outcome = await this.assistant.resolveAction(sender, actionId, confirmed);
 
-    return { outcome, text: withOutcome(original, outcome) };
+    return {
+      outcome,
+      text: withOutcome(message?.text ?? "", outcome),
+      entities: message?.entities,
+    };
   }
 
   /**
@@ -711,14 +735,15 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
    */
   private async updateTappedMessage(
     message: NonNullable<CallbackQuery["message"]>,
-    text: string,
+    result: TapResult,
     buttons: InlineButton[][],
   ) {
     const edit = (keyboard: InlineButton[][]) =>
       this.call("editMessageText", {
         chat_id: message.chat.id,
         message_id: message.message_id,
-        text,
+        text: result.text,
+        ...(result.entities && { entities: result.entities }),
         reply_markup: { inline_keyboard: keyboard },
       });
 

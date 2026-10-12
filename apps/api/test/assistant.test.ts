@@ -500,9 +500,9 @@ test("an answer from the web lists its sources, and the chat sees the search", a
       "Корзинка на Чиланзаре работает до 23:00.",
       "",
       "Источники:",
-      "• Корзинка — магазины и часы работы: https://korzinka.uz/stores",
-      "• yandex.uz: https://yandex.uz/maps/org/korzinka",
-      "• Третий: https://example.uz/3",
+      "• [Корзинка — магазины и часы работы](https://korzinka.uz/stores)",
+      "• [yandex.uz](https://yandex.uz/maps/org/korzinka)",
+      "• [Третий](https://example.uz/3)",
     ].join("\n"),
   );
   assert.deepEqual(requests[0].webSearch, { timezone: "Asia/Tashkent" });

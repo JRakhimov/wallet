@@ -200,7 +200,8 @@ const voiceUpdate = {
 const textUpdate = { update_id: 80, message: { text: "сколько я потратил?", ...chat } };
 
 /** Telegram stand-in: getFile answers `<id>.jpg` paths, downloads return `files[id]`. */
-function mockTelegram(t: TestContext, files: Record<string, number[]> = {}) {
+/** `refuseHtml` makes Telegram refuse formatted messages, as with broken markup. */
+function mockTelegram(t: TestContext, files: Record<string, number[]> = {}, refuseHtml = false) {
   const calls: { method: string; body: Record<string, unknown> }[] = [];
 
   t.mock.method(globalThis, "fetch", async (url: string, options?: RequestInit) => {
@@ -219,6 +220,13 @@ function mockTelegram(t: TestContext, files: Record<string, number[]> = {}) {
         ok: true,
         result: { file_path: `files/${body.file_id}.${extension}` },
       });
+    }
+
+    if (refuseHtml && body.parse_mode === "HTML") {
+      return Response.json(
+        { ok: false, description: "Bad Request: can't parse entities" },
+        { status: 400 },
+      );
     }
 
     const result = method === "sendMessage" ? { message_id: 500 } : true;
@@ -289,7 +297,7 @@ test("a voice message shows a draft at once, is answered once and gets the answe
 
   // Later progress within the update interval is merged; the answer replaces the draft anyway.
   assert.deepEqual(telegram.drafts(), [
-    { chat_id: 123, draft_id: 1, text: "Принято в обработку…" },
+    { chat_id: 123, draft_id: 1, text: "Принято в обработку…", parse_mode: "HTML" },
   ]);
   assert.deepEqual(telegram.sent(), ["Расход 45 000 сум за обед записан · Кафе"]);
   assert.deepEqual(telegram.silent(), [true]);
@@ -314,7 +322,9 @@ test("a text message shows the assistant's thinking line, then the answer", asyn
 
   await chatBot(assistant).handleUpdate(textUpdate);
 
-  assert.deepEqual(telegram.drafts(), [{ chat_id: 123, draft_id: 1, text: "Думаю…" }]);
+  assert.deepEqual(telegram.drafts(), [
+    { chat_id: 123, draft_id: 1, text: "Думаю…", parse_mode: "HTML" },
+  ]);
   assert.deepEqual(telegram.sent(), ["В октябре потрачено 3 800 000 сум"]);
   assert.equal(telegram.of("sendMessage")[0].body.reply_markup, undefined);
   assert.equal(inputs[0].text, "сколько я потратил?");
@@ -404,6 +414,38 @@ test("without the assistant configured the bot says so", async (t) => {
   assert.deepEqual(telegram.sent(), ["Ассистент не настроен на сервере.\nНичего не записано."]);
 });
 
+test("the assistant's Markdown goes to Telegram as HTML", async (t) => {
+  const telegram = mockTelegram(t);
+  const { assistant } = fakeAssistant(async () => ({
+    text: "Осталось **1 200 000 сум** <из бюджета>\n\nИсточники:\n• [Афиша](https://afisha.uz/ru)",
+    buttons: [],
+  }));
+
+  await chatBot(assistant).handleUpdate(textUpdate);
+
+  const [message] = telegram.of("sendMessage");
+  assert.equal(message.body.parse_mode, "HTML");
+  assert.equal(
+    message.body.text,
+    'Осталось <b>1 200 000 сум</b> &lt;из бюджета&gt;\n\nИсточники:\n• <a href="https://afisha.uz/ru">Афиша</a>',
+  );
+});
+
+test("an answer Telegram refuses as HTML is sent again as plain text", async (t) => {
+  const telegram = mockTelegram(t, {}, true);
+  const { assistant } = fakeAssistant(async () => ({
+    text: "Осталось **1 200 000 сум**, [подробнее](https://example.uz)",
+    buttons: [],
+  }));
+
+  await chatBot(assistant).handleUpdate(textUpdate);
+
+  const messages = telegram.of("sendMessage");
+  assert.equal(messages.length, 2);
+  assert.equal(messages[1].body.parse_mode, undefined);
+  assert.equal(messages[1].body.text, "Осталось 1 200 000 сум, подробнее (https://example.uz)");
+});
+
 test("/new starts the conversation over", async (t) => {
   const telegram = mockTelegram(t);
   const { assistant, restarted, inputs } = fakeAssistant(async () => ({ text: "", buttons: [] }));
@@ -440,7 +482,7 @@ test("in webhook mode the draft has a stop button, and a tap aborts the answer a
   await answered;
 
   assert.deepEqual(telegram.drafts(), [
-    { chat_id: 123, draft_id: 1, text: "Думаю…", can_stop: true },
+    { chat_id: 123, draft_id: 1, text: "Думаю…", parse_mode: "HTML", can_stop: true },
   ]);
   assert.deepEqual(telegram.sent(), ["⏹ Остановлено"]);
 });
