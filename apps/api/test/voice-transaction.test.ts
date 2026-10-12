@@ -8,6 +8,7 @@ import { CategoriesService } from "../src/wallet/categories/categories.service";
 import { WorkoutsService } from "../src/nutrition/workouts/workouts.service";
 import { OperationsService } from "../src/wallet/operations/operations.service";
 import { TasksService } from "../src/tasks/tasks.service";
+import { WeightService } from "../src/nutrition/weight/weight.service";
 import { SpeechToText } from "../src/voice/speech-to-text";
 import { ParsedTransaction, TransactionParser } from "../src/voice/transaction-parser";
 import { VoiceError, VoiceTransactionService } from "../src/voice/voice-transaction.service";
@@ -24,6 +25,7 @@ function setup(text: string, parsed: Partial<ParsedTransaction>) {
   const tasks: { input: Record<string, unknown>; key: string }[] = [];
   const asked: unknown[] = [];
   const contexts: string[] = [];
+  const weights: { date: string; weightKg: number }[] = [];
   const speech: SpeechToText = { transcribe: async () => text };
   const parser: TransactionParser = {
     async parse(_text, choices, context) {
@@ -71,8 +73,14 @@ function setup(text: string, parsed: Partial<ParsedTransaction>) {
         return { ...input, repeatDays: input.repeatDays ?? [] };
       },
     } as unknown as TasksService,
+    {
+      record: async (_owner: string, input: { date: string; weightKg: number }) => {
+        weights.push(input);
+        return { change7: -0.6 };
+      },
+    } as unknown as WeightService,
   );
-  return { service, created, workouts, tasks, asked, contexts };
+  return { service, created, workouts, tasks, weights, asked, contexts };
 }
 
 const recording = { telegramId: 1n, audio: Buffer.from("x"), filename: "voice.ogg", key: "k1" };
@@ -119,6 +127,7 @@ test("without speech recognition configured nothing is recorded", async () => {
   const service = new VoiceTransactionService(
     null,
     null,
+    null as never,
     null as never,
     null as never,
     null as never,
@@ -231,4 +240,25 @@ test("a task without a title or with a broken date is rejected", async () => {
     await assert.rejects(service.record(recording), VoiceError);
     assert.equal(tasks.length, 0);
   }
+});
+
+test("a weigh-in is recorded for today and confirmed with the weekly change", async () => {
+  const { service, created, weights } = setup("вес восемьдесят два и четыре", {
+    kind: "weight",
+    amount: 82.4,
+    categoryId: null,
+    note: "",
+  });
+  const reply = await service.record(recording);
+
+  assert.equal(reply, "Вес 82,4 кг записан · −0,6 кг за неделю");
+  assert.equal(created.length, 0);
+  assert.deepEqual(weights, [{ date: tashkentDay(0), weightKg: 82.4 }]);
+});
+
+test("an implausible weight is rejected", async () => {
+  const { service, weights } = setup("вес 8", { kind: "weight", amount: 8, categoryId: null });
+
+  await assert.rejects(service.record(recording), /Не понял вес/);
+  assert.equal(weights.length, 0);
 });

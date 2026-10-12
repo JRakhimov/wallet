@@ -4,12 +4,15 @@ import { Repeat, REPEATS } from "../tasks/recurrence";
 
 export type CategoryChoice = { id: string; name: string; kind: "expense" | "income" };
 
-/** What the model understood from a spoken note about money, a workout or a task. */
+/** What the model understood from a spoken note about money, a workout, weight or a task. */
 export type ParsedTransaction = {
-  /** False when the text is not about money, a workout or a task. */
+  /** False when the text is not about money, a workout, weight or a task. */
   isTransaction: boolean;
-  kind: "expense" | "income" | "workout" | "task";
-  /** Plain number: money in the main currency units, or kilocalories burned for a workout. */
+  kind: "expense" | "income" | "workout" | "weight" | "task";
+  /**
+   * Plain number: money in the main currency units, kilocalories burned for a workout, or
+   * body weight in kilograms.
+   */
   amount: number;
   /** Workout length in minutes, when said. */
   durationMinutes: number | null;
@@ -45,11 +48,11 @@ export const TRANSACTION_PARSER = Symbol("TRANSACTION_PARSER");
 
 const TIMEOUT_MS = 60_000;
 
-const SYSTEM_PROMPT = `You turn a short transcribed voice note into a record: money, a workout or a task. The note is usually in Russian or Uzbek.
+const SYSTEM_PROMPT = `You turn a short transcribed voice note into a record: money, a workout, body weight or a task. The note is usually in Russian or Uzbek.
 
-- isTransaction: true only if the note says money was spent or received, records a workout (тренировка, сожжено калорий), or asks to remember, remind or note something. Otherwise false (other fields can be empty/zero).
-- kind: "expense" for spending (расход, потратил, купил, заплатил), "income" for receiving (доход, получил, зарплата), "workout" for a workout with calories burned (тренировка, сжёг, сожжено N калорий/ккал), "task" for a reminder, a to-do or a note (напомни, не забыть, надо, задача, запиши заметку, добавь в список дел). A note about money that was already spent or received is never a task. Default to "expense".
-- amount: a plain positive number. For expense and income: money in the main currency units (сум); expand spoken forms: "45 тысяч" = 45000, "полтора миллиона" = 1500000, "сорок пять тысяч" = 45000; do not convert currencies. For workout: the kilocalories burned. For task: 0.
+- isTransaction: true only if the note says money was spent or received, records a workout (тренировка, сожжено калорий), records body weight (вес, взвесился, вешу), or asks to remember, remind or note something. Otherwise false (other fields can be empty/zero).
+- kind: "expense" for spending (расход, потратил, купил, заплатил), "income" for receiving (доход, получил, зарплата), "workout" for a workout with calories burned (тренировка, сжёг, сожжено N калорий/ккал), "weight" for the owner's body weight (вес 82,4; взвесился, 82 и 4; вешу 80 кило), "task" for a reminder, a to-do or a note (напомни, не забыть, надо, задача, запиши заметку, добавь в список дел). A note about money that was already spent or received is never a task. Default to "expense".
+- amount: a plain positive number. For expense and income: money in the main currency units (сум); expand spoken forms: "45 тысяч" = 45000, "полтора миллиона" = 1500000, "сорок пять тысяч" = 45000; do not convert currencies. For workout: the kilocalories burned. For weight: kilograms with up to one decimal ("82 и 4" = 82.4, "восемьдесят два триста" = 82.3). For task: 0.
 - durationMinutes: for a workout, its length in minutes if said ("час" = 60, "полтора часа" = 90); otherwise null. Always null for expense and income.
 - categoryId: for expense and income, the id of the single best matching category from the list, which must have the same kind as the record; null only when nothing fits at all. Always null for a workout.
 - note: what the money was for, or the kind of workout, 1-3 lowercase words without the number, e.g. "обед", "такси до дома", "бег". Empty string if not stated or for a task.
@@ -79,7 +82,7 @@ function responseSchema(categories: CategoryChoice[]) {
     ],
     properties: {
       isTransaction: { type: "boolean" },
-      kind: { type: "string", enum: ["expense", "income", "workout", "task"] },
+      kind: { type: "string", enum: ["expense", "income", "workout", "weight", "task"] },
       amount: { type: "number" },
       durationMinutes: { type: ["number", "null"] },
       // The enum keeps the model to real ids of this owner's categories.

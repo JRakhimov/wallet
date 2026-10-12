@@ -9,6 +9,7 @@ import {
   LogOut,
   PenLine,
   Salad,
+  Scale,
   Sun,
 } from "lucide-react";
 import { AppShell, ShellTab } from "@ui/components/AppShell";
@@ -20,10 +21,12 @@ import { useOwner } from "@ui/lib/owner";
 import { closeTelegramApp, openedInTelegram } from "@ui/lib/telegram";
 import { useAuth, useSessionExpiry } from "@ui/lib/useAuth";
 import { useThemeSync } from "@ui/lib/useThemeSync";
-import { Meal, useProfile, Workout } from "./api";
+import { Meal, useProfile, WeightLog, Workout } from "./api";
 import { AddMealFlow, AddMealFlowHandle } from "./components/AddMealFlow";
+import { WeightSheet } from "./components/WeightSheet";
 import { WorkoutSheet } from "./components/WorkoutSheet";
 import { formatNumber } from "./lib/labels";
+import { formatKg } from "./lib/weight";
 import { usePendingMeals } from "./lib/pending-meals";
 import { HistoryPage } from "./pages/HistoryPage";
 import { Onboarding } from "./pages/Onboarding";
@@ -53,6 +56,7 @@ export function App() {
   const addMeal = useRef<AddMealFlowHandle>(null);
   // `workout` is set when an existing workout is edited.
   const [workoutSheet, setWorkoutSheet] = useState<{ workout: Workout | null } | null>(null);
+  const [weightSheet, setWeightSheet] = useState(false);
   const pendingMeals = usePendingMeals(auth.ready);
   const ownerQ = useOwner(auth.ready);
   const profileQ = useProfile(auth.ready);
@@ -83,6 +87,7 @@ export function App() {
               Icon: Dumbbell,
               onClick: () => setWorkoutSheet({ workout: null }),
             },
+            { label: "Вес", Icon: Scale, onClick: () => setWeightSheet(true) },
           ]}
         />
       );
@@ -106,6 +111,14 @@ export function App() {
     setWorkoutSheet(null);
     if (workout && !wasEdit) {
       setToast(`Тренировка записана: ${formatNumber(workout.kcal)} ккал`);
+    }
+  }
+
+  function weightSaved(log: WeightLog) {
+    setWeightSheet(false);
+
+    if (log.current !== null) {
+      setToast(`Вес записан: ${formatKg(log.current)}`);
     }
   }
 
@@ -177,7 +190,13 @@ export function App() {
         />
       )}
       {tab === "history" && <HistoryPage profile={profileQ.data} timezone={ownerQ.data.timezone} />}
-      {tab === "profile" && <ProfilePage profile={profileQ.data} owner={ownerQ.data} />}
+      {tab === "profile" && (
+        <ProfilePage
+          profile={profileQ.data}
+          owner={ownerQ.data}
+          onRecordWeight={() => setWeightSheet(true)}
+        />
+      )}
       <SheetPresence>
         {workoutSheet && (
           <WorkoutSheet
@@ -185,6 +204,15 @@ export function App() {
             timezone={ownerQ.data.timezone}
             onClose={() => setWorkoutSheet(null)}
             onSaved={(workout) => workoutSaved(workout, workoutSheet.workout !== null)}
+          />
+        )}
+      </SheetPresence>
+      <SheetPresence>
+        {weightSheet && (
+          <WeightSheet
+            timezone={ownerQ.data.timezone}
+            onClose={() => setWeightSheet(false)}
+            onSaved={weightSaved}
           />
         )}
       </SheetPresence>

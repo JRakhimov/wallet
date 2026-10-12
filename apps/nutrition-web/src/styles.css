@@ -688,3 +688,50 @@
   display: flex;
   gap: 10px;
 }
+
+/* Weight card on the profile. */
+.weight-now {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 14px;
+  margin-bottom: 12px;
+}
+.weight-now strong {
+  font-size: 26px;
+  letter-spacing: -0.5px;
+  font-variant-numeric: tabular-nums;
+}
+.weight-changes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.weight-chart {
+  display: block;
+  width: 100%;
+  height: 64px;
+  margin-bottom: 14px;
+}
+.weight-chart polyline {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Weigh-ins in the weight sheet. */
+.weight-history {
+  margin-top: 6px;
+}
+.weight-history .manage-text {
+  flex: 1;
+}
+.weight-history-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}

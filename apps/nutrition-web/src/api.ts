@@ -55,6 +55,10 @@ export function useProfileUpdate() {
   return async (send: () => Promise<NutritionProfile>) => {
     const profile = await send();
     queryClient.setQueryData(PROFILE_QUERY_KEY, profile);
+
+    // A changed weight is written to the weight log as today's weigh-in.
+    void queryClient.invalidateQueries({ queryKey: ["nutrition", "weight"] });
+
     return profile;
   };
 }
@@ -253,4 +257,50 @@ export function updateWorkout(id: string, input: WorkoutInput) {
 
 export function deleteWorkout(id: string) {
   return request<{ ok: true }>(`/nutrition/workouts/${id}`, { method: "DELETE" });
+}
+
+export type WeightEntry = { id: string; date: string; weightKg: number };
+
+/** Weight log, oldest first, with the change over 7 and 30 days (null when unknown). */
+export type WeightLog = {
+  entries: WeightEntry[];
+  current: number | null;
+  change7: number | null;
+  change30: number | null;
+};
+
+export const WEIGHT_QUERY_KEY = ["nutrition", "weight"];
+
+export function useWeight(enabled = true) {
+  return useQuery({
+    queryKey: WEIGHT_QUERY_KEY,
+    queryFn: () => request<WeightLog>("/nutrition/weight"),
+    enabled,
+  });
+}
+
+/** Saves a day's weigh-in; the same day again replaces it. */
+export function saveWeight(input: { date: string; weightKg: number }) {
+  return request<WeightLog>("/nutrition/weight", { method: "PUT", body: JSON.stringify(input) });
+}
+
+export function deleteWeight(id: string) {
+  return request<WeightLog>(`/nutrition/weight/${id}`, { method: "DELETE" });
+}
+
+/**
+ * Runs a weight request and puts the log into the cache. The latest weigh-in is the
+ * profile's weight, so the profile and its targets are reloaded too.
+ */
+export function useWeightUpdate() {
+  const queryClient = useQueryClient();
+
+  return async (send: () => Promise<WeightLog>) => {
+    const log = await send();
+
+    queryClient.setQueryData(WEIGHT_QUERY_KEY, log);
+    await queryClient.invalidateQueries({ queryKey: PROFILE_QUERY_KEY });
+
+    return log;
+  };
 }

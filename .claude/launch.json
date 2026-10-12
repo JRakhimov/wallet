@@ -2,6 +2,18 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "api",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:api"],
+      "port": 3001
+    },
+    {
+      "name": "nutrition-web",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["PORT=3001", "npx", "vite", "--config", "apps/nutrition-web/vite.config.ts"],
+      "port": 5174
+    },
+    {
       "name": "tasks-web",
       "runtimeExecutable": "env",
       "runtimeArgs": ["PORT=3001", "npx", "vite", "--config", "apps/tasks-web/vite.config.ts"],

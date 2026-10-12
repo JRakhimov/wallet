@@ -22,6 +22,7 @@ import {
   WeightField,
 } from "../components/BodyFields";
 import { TargetsPanel } from "../components/TargetsPanel";
+import { WeightCard } from "../components/WeightCard";
 import {
   activityLabel,
   deficitOptions,
@@ -73,7 +74,15 @@ function bodyData(profile: NutritionProfile): BodyData {
   };
 }
 
-export function ProfilePage({ profile, owner }: { profile: NutritionProfile; owner: Owner }) {
+export function ProfilePage({
+  profile,
+  owner,
+  onRecordWeight,
+}: {
+  profile: NutritionProfile;
+  owner: Owner;
+  onRecordWeight: () => void;
+}) {
   const updateProfile = useProfileUpdate();
   const [sheet, setSheet] = useState<ProfileSheet>(null);
   const [error, setError] = useState("");
@@ -97,6 +106,8 @@ export function ProfilePage({ profile, owner }: { profile: NutritionProfile; own
           <h1>Профиль</h1>
         </div>
       </div>
+
+      <WeightCard onRecord={onRecordWeight} />
 
       <section className="card">
         <h2 className="card-title">Цель</h2>

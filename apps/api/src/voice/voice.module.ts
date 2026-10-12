@@ -1,5 +1,6 @@
 import { Logger, Module } from "@nestjs/common";
 import { AppConfig, CONFIG } from "../config/app-config";
+import { WeightModule } from "../nutrition/weight/weight.module";
 import { WorkoutsModule } from "../nutrition/workouts/workouts.module";
 import { OwnerModule } from "../owner/owner.module";
 import { TasksModule } from "../tasks/tasks.module";
@@ -28,6 +29,7 @@ function voiceConfig(config: AppConfig) {
     CategoriesModule,
     OperationsModule,
     WorkoutsModule,
+    WeightModule,
     TasksModule,
   ],
   providers: [

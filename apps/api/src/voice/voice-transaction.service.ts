@@ -1,5 +1,7 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable } from "@nestjs/common";
 import { DateTime } from "luxon";
+import { MAX_WEIGHT_KG, MIN_WEIGHT_KG } from "../nutrition/weight/dto/weight.dto";
+import { WeightService } from "../nutrition/weight/weight.service";
 import { MAX_WORKOUT_KCAL } from "../nutrition/workouts/dto/workout.dto";
 import { WorkoutsService } from "../nutrition/workouts/workouts.service";
 import { OwnerService } from "../owner/owner.service";
@@ -36,6 +38,7 @@ const MAX_AMOUNT = 999_999_999_999;
 const EXAMPLE = "Запиши расход 45000 сум за обед";
 const WORKOUT_EXAMPLE = "Запиши тренировку, сожжено 420 калорий";
 const TASK_EXAMPLE = "Напомни завтра в 10 позвонить в банк";
+const WEIGHT_EXAMPLE = "Вес 82,4";
 const ALL_DAY_TIME = "09:00";
 const MAX_WORKOUT_MINUTES = 24 * 60;
 
@@ -57,6 +60,7 @@ export class VoiceTransactionService {
     private readonly operations: OperationsService,
     private readonly workouts: WorkoutsService,
     private readonly tasks: TasksService,
+    private readonly weight: WeightService,
   ) {}
 
   get enabled() {
@@ -93,6 +97,10 @@ export class VoiceTransactionService {
     const amount = Math.round(parsed.amount * 100) / 100;
     if (!(amount > 0) || amount > MAX_AMOUNT) {
       throw new VoiceError(`Не понял: «${text}». Скажите, например: «${EXAMPLE}»`);
+    }
+
+    if (kind === "weight") {
+      return this.recordWeight(owner.id, amount, now);
     }
 
     const note = parsed.note.trim().slice(0, 100);
@@ -141,6 +149,31 @@ export class VoiceTransactionService {
     const kind = workout.note ? `Тренировка (${workout.note})` : "Тренировка";
     const duration = minutes ? ` · ${minutes} мин` : "";
     return `${kind}: ${formatAmount(kcal)} ккал${duration} записана`;
+  }
+
+  /** Today's weigh-in; it also becomes the profile's weight. A repeat replaces it. */
+  private async recordWeight(ownerId: string, weightKg: number, now: DateTime) {
+    const kg = Math.round(weightKg * 10) / 10;
+    if (kg < MIN_WEIGHT_KG || kg > MAX_WEIGHT_KG) {
+      throw new VoiceError(
+        `Не понял вес: «${formatAmount(kg)}». Скажите, например: «${WEIGHT_EXAMPLE}»`,
+      );
+    }
+
+    let summary: { change7: number | null };
+    try {
+      summary = await this.weight.record(ownerId, { date: now.toISODate()!, weightKg: kg });
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw new VoiceError("Сначала заполните профиль в приложении «Питание»");
+      }
+
+      throw error;
+    }
+
+    const change = summary.change7 === null ? "" : ` · ${formatChange(summary.change7)} за неделю`;
+
+    return `Вес ${formatAmount(kg)} кг записан${change}`;
   }
 
   /** A reminder, a to-do or, without a date, a note. */
@@ -242,6 +275,17 @@ function taskConfirmation(task: TaskView, now: DateTime) {
   }
 
   return `Напомню ${dueLabel(task.dueDate, time, now)}: ${task.title}`;
+}
+
+/** "−0,6 кг", "+1,2 кг", "без изменений". */
+function formatChange(kg: number) {
+  if (kg === 0) {
+    return "без изменений";
+  }
+
+  const sign = kg > 0 ? "+" : "−";
+
+  return `${sign}${formatAmount(Math.abs(kg))} кг`;
 }
 
 function formatAmount(amount: number) {

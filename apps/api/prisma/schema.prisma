@@ -26,6 +26,7 @@ model Owner {
   mealPhotos       MealPhoto[]
   workouts         Workout[]
   tasks            Task[]
+  weightEntries    WeightEntry[]
 }
 
 model Session {
@@ -281,4 +282,17 @@ model Task {
   @@index([remindAt])
   @@index([snoozeAt])
   @@index([ownerId, doneAt])
+}
+
+model WeightEntry {
+  id        String   @id @default(uuid()) @db.Uuid
+  ownerId   String   @db.Uuid
+  owner     Owner    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  // yyyy-MM-dd in the owner's timezone; one weigh-in per day.
+  date      String
+  weightKg  Decimal  @db.Decimal(5, 1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([ownerId, date])
 }
