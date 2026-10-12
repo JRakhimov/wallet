@@ -85,6 +85,54 @@ export class MealsService {
     return mealView(meal);
   }
 
+  /**
+   * Recognizes a meal and saves it to the diary at once, without a review: for the bot chat,
+   * where the owner sees the result in the answer and can undo it. Idempotent, like `analyze`.
+   */
+  async recordNow(
+    ownerId: string,
+    input: { comment: string; eatenAt: Date; upload: UploadedPhoto | null },
+    idempotencyKey: string,
+  ) {
+    const existing = await this.db.meal.findUnique({
+      where: { ownerId_idempotencyKey: { ownerId, idempotencyKey } },
+      include: withItems,
+    });
+    if (existing) {
+      return mealView(existing);
+    }
+
+    const analysis = await this.runAnalysis({
+      comment: input.comment,
+      photo: input.upload?.photo,
+    });
+    if (analysis.items.length === 0) {
+      throw new BadRequestException("Не нашёл еду. Опишите, что вы съели");
+    }
+
+    const photo = input.upload
+      ? await this.photos.save(ownerId, input.upload.photo, input.upload.thumbnail)
+      : null;
+
+    const meal = await this.db.meal.create({
+      data: {
+        ownerId,
+        idempotencyKey,
+        status: "confirmed",
+        eatenAt: input.eatenAt,
+        source: input.upload ? "photo" : "text",
+        comment: input.comment,
+        photoId: photo?.id ?? null,
+        ...sumTotals(analysis.items),
+        analysis: storedAnalysis(analysis, null),
+        items: { create: itemsData(analysis.items) },
+      },
+      include: withItems,
+    });
+
+    return mealView(meal);
+  }
+
   /** Meals still being recognized, failed ones and drafts waiting for review, newest first. */
   async pending(ownerId: string) {
     await this.failStaleAnalyses(ownerId);

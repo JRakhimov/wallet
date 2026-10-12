@@ -8,6 +8,7 @@ import {
 import { Prisma } from "@prisma/client";
 import { DateTime } from "luxon";
 import { AccessService } from "../access/access.service";
+import { AssistantSettingsService } from "../assistant/settings.service";
 import { AppConfig, CONFIG } from "../config/app-config";
 import { PrismaService } from "../prisma/prisma.service";
 import { isChargedOn } from "../wallet/subscriptions/charge-date";
@@ -31,6 +32,7 @@ export class ReminderService implements OnApplicationBootstrap, OnModuleDestroy 
     private readonly bot: TelegramBotService,
     @Inject(CONFIG) private readonly config: AppConfig,
     private readonly access: AccessService,
+    private readonly settings: AssistantSettingsService,
   ) {}
 
   onApplicationBootstrap() {
@@ -76,8 +78,14 @@ export class ReminderService implements OnApplicationBootstrap, OnModuleDestroy 
   ) {
     try {
       const local = now.setZone(owner.timezone);
+      const settings = await this.settings.get(owner.id);
 
       for (const kind of dueReminders(local)) {
+        // The morning brief already lists the day's charges.
+        if (kind === "subscription_morning" && settings.morningBriefAt) {
+          continue;
+        }
+
         await this.check(kind, owner, local);
       }
     } catch {

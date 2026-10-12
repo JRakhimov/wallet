@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import { DateTime } from "luxon";
 import { readConfig } from "../src/config/app-config";
 import { AccessService } from "../src/access/access.service";
+import { AssistantSettingsService } from "../src/assistant/settings.service";
 import { PrismaService } from "../src/prisma/prisma.service";
 import { ReminderService } from "../src/telegram/reminder.service";
 import { chargeDayIn, isChargedOn, nextChargeDate } from "../src/wallet/subscriptions/charge-date";
@@ -81,6 +82,7 @@ type StoredSubscription = { name: string; amount: Prisma.Decimal; chargeDay: num
 function fixture(
   counts: { meals: number; dinners: number; expenses: number },
   subscriptions: StoredSubscription[] = [],
+  morningBriefAt: string | null = null,
 ) {
   const claimed = new Set<string>();
   const sent: { text: string; silent: boolean }[] = [];
@@ -131,6 +133,9 @@ function fixture(
     bot as unknown as TelegramBotService,
     config,
     { allowedIds: async () => [123n] } as unknown as AccessService,
+    {
+      get: async () => ({ morningBriefAt, weeklyReport: true, historyFrom: null }),
+    } as unknown as AssistantSettingsService,
   );
   return { service, sent, failSend: (value: boolean) => (failSend = value) };
 }
@@ -236,4 +241,15 @@ test("subscription reminders go out the day before and on the day, once each", a
   await service.tick(dayOf);
   assert.equal(sent.length, 2);
   assert.match(sent[1].text, /^☀️ Сегодня/);
+});
+
+test("with the morning brief on, the charges of the day are left to the brief", async () => {
+  const subscription = { name: "Netflix", amount: new Prisma.Decimal("50000"), chargeDay: 15 };
+  const { service, sent } = fixture({ meals: 2, dinners: 1, expenses: 4 }, [subscription], "08:00");
+
+  await service.tick(DateTime.fromISO("2026-10-14T18:01", { zone: timezone }));
+  await service.tick(DateTime.fromISO("2026-10-15T08:01", { zone: timezone }));
+
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].text, /^📅 Завтра/);
 });

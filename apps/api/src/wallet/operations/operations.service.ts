@@ -6,7 +6,7 @@ import {
 } from "@nestjs/common";
 import { Account, Prisma } from "@prisma/client";
 import { sha256 } from "../../common/utils/hash";
-import { currentMonth, monthRange } from "../../common/utils/month";
+import { currentMonth, dayRange, monthRange } from "../../common/utils/month";
 import { OwnerService } from "../../owner/owner.service";
 import { PrismaService } from "../../prisma/prisma.service";
 import { convertAtRate } from "../currency";
@@ -66,6 +66,39 @@ export class OperationsService {
       count,
       nextCursor: hasMore ? rows[limit - 1].id : null,
     };
+  }
+
+  /** One active operation. */
+  async get(ownerId: string, id: string) {
+    const operation = await this.db.operation.findFirst({
+      where: { id, ownerId, deletedAt: null },
+      include: operationInclude,
+    });
+    if (!operation) {
+      throw new NotFoundException("Операция не найдена");
+    }
+
+    return operationView(operation, await this.owners.getTimezone(ownerId));
+  }
+
+  /** Sums and counts of everything the filter matches, by kind and currency. */
+  async totals(ownerId: string, query: OperationFilterDto) {
+    const { where } = await this.buildFilter(ownerId, query);
+
+    const groups = await this.db.operation.groupBy({
+      by: ["kind", "currency"],
+      where,
+      _sum: { amount: true },
+      _count: { _all: true },
+      orderBy: [{ kind: "asc" }, { currency: "asc" }],
+    });
+
+    return groups.map((group) => ({
+      kind: group.kind,
+      currency: group.currency,
+      amount: (group._sum.amount ?? decimal(0)).toFixed(2),
+      count: group._count._all,
+    }));
   }
 
   /**
@@ -180,10 +213,12 @@ export class OperationsService {
     const timezone = await this.owners.getTimezone(ownerId);
     const month = query.month || currentMonth(timezone);
 
+    const hasRange = Boolean(query.from || query.to);
+
     const where: Prisma.OperationWhereInput = {
       ownerId,
       deletedAt: query.deleted === "true" ? { not: null } : null,
-      occurredAt: monthRange(month, timezone),
+      occurredAt: hasRange ? dayRange(query.from, query.to, timezone) : monthRange(month, timezone),
     };
     if (query.kind) {
       where.kind = query.kind;

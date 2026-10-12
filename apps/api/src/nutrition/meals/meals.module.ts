@@ -14,6 +14,7 @@ const ANALYSIS_REQUESTS_PER_MINUTE = 10;
   imports: [OwnerModule, PhotosModule, AnalysisModule, WorkoutsModule],
   controllers: [MealsController],
   providers: [MealsService],
+  exports: [MealsService],
 })
 export class MealsModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

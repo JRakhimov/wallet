@@ -48,4 +48,8 @@ export type OperationDto = z.infer<typeof operationSchema>;
 export type UpdateOperationDto = z.infer<typeof updateOperationSchema>;
 export type VersionDto = z.infer<typeof versionSchema>;
 export type OperationQueryDto = z.infer<typeof operationQuerySchema>;
-export type OperationFilterDto = Omit<OperationQueryDto, "cursor">;
+/**
+ * Filter of reports and lists. `from` and `to` (yyyy-MM-dd, inclusive) replace the month; only
+ * the server sets them (the assistant's questions like "за неделю"), the API does not accept them.
+ */
+export type OperationFilterDto = Omit<OperationQueryDto, "cursor"> & { from?: string; to?: string };

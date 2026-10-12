@@ -27,6 +27,10 @@ model Owner {
   workouts         Workout[]
   tasks            Task[]
   weightEntries    WeightEntry[]
+  assistantMessages AssistantMessage[]
+  assistantMemories AssistantMemory[]
+  pendingActions    PendingAction[]
+  assistantSettings AssistantSettings?
 }
 
 model Session {
@@ -295,4 +299,50 @@ model WeightEntry {
   updatedAt DateTime @updatedAt
 
   @@unique([ownerId, date])
+}
+
+// One turn of the chat with the assistant: the user's message, tool calls and the answer.
+model AssistantMessage {
+  id        String   @id @default(uuid()) @db.Uuid
+  ownerId   String   @db.Uuid
+  owner     Owner    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  items     Json
+  createdAt DateTime @default(now())
+
+  @@index([ownerId, createdAt])
+}
+
+// A fact the assistant keeps about the person ("taxi is always the Транспорт category").
+model AssistantMemory {
+  id        String   @id @default(uuid()) @db.Uuid
+  ownerId   String   @db.Uuid
+  owner     Owner    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  text      String
+  createdAt DateTime @default(now())
+
+  @@index([ownerId])
+}
+
+// A change waiting for a tap in the chat: "Подтвердить" before an edit or a deletion, or
+// "Отменить" under a record that was just made.
+model PendingAction {
+  id        String   @id @default(uuid()) @db.Uuid
+  ownerId   String   @db.Uuid
+  owner     Owner    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  kind      String
+  payload   Json
+  summary   String
+  status    String   @default("pending") // pending | done | cancelled | failed
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([ownerId])
+}
+
+model AssistantSettings {
+  ownerId        String    @id @db.Uuid
+  owner          Owner     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  morningBriefAt String?   @default("08:00") // HH:mm in the owner's timezone; null = off
+  weeklyReport   Boolean   @default(true)
+  historyFrom    DateTime? // the chat starts over from here (/new)
 }

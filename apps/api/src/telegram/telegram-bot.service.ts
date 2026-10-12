@@ -9,44 +9,63 @@ import { Prisma } from "@prisma/client";
 import { DateTime } from "luxon";
 import { setTimeout as delay } from "node:timers/promises";
 import { AccessService } from "../access/access.service";
+import {
+  AssistantError,
+  AssistantReply,
+  AssistantService,
+  AssistantStage,
+  ChatInput,
+} from "../assistant/assistant.service";
 import { AppConfig, CONFIG } from "../config/app-config";
 import { PrismaService } from "../prisma/prisma.service";
 import { ALL_DAY_REMIND_HOUR } from "../tasks/recurrence";
 import { TasksService } from "../tasks/tasks.service";
-import { VoiceError, VoiceTransactionService } from "../voice/voice-transaction.service";
 
 /** A voice message or an audio file; both carry speech. */
 type SpeechFile = { file_id: string; file_size?: number; duration?: number; file_name?: string };
 
+/** One of the sizes Telegram keeps of a photo, smallest first. */
+type PhotoSize = { file_id: string; width: number; height: number; file_size?: number };
+
 type Message = {
   text?: string;
+  caption?: string;
   voice?: SpeechFile;
   audio?: SpeechFile;
+  photo?: PhotoSize[];
   from?: { id: number };
   chat: { id: number; type: string };
 };
+
+type CallbackButton = { text: string; callback_data: string };
+type WebAppButton = { text: string; web_app: { url: string } };
+type InlineButton = CallbackButton | WebAppButton;
 
 /** A tap on an inline button under one of the bot's messages. */
 type CallbackQuery = {
   id: string;
   from: { id: number };
   data?: string;
-  message?: { message_id: number; chat: { id: number }; text?: string };
+  message?: {
+    message_id: number;
+    chat: { id: number };
+    text?: string;
+    reply_markup?: { inline_keyboard: InlineButton[][] };
+  };
 };
 
 export type MiniApp = "wallet" | "nutrition" | "tasks";
 
-type CallbackButton = { text: string; callback_data: string };
-type WebAppButton = { text: string; web_app: { url: string } };
-type InlineButton = CallbackButton | WebAppButton;
-
-type Update = {
+export type Update = {
   update_id: number;
   message?: Message;
   callback_query?: CallbackQuery;
 };
 
 type TaskAction = "done" | "hour" | "tomorrow";
+
+/** The message that shows the progress of an answer and then turns into the answer. */
+type Status = { chatId: number; messageId?: number; text?: string };
 
 /** Buttons under a task reminder; the bot handles them in handleCallback. */
 export function taskButtons(taskId: string): InlineButton[][] {
@@ -59,31 +78,43 @@ export function taskButtons(taskId: string): InlineButton[][] {
   ];
 }
 
+const ALLOWED_UPDATES = ["message", "callback_query"];
 const POLL_TIMEOUT_SECONDS = 30;
 const RETRY_DELAY_MS = 5000;
 const START_COMMAND = /^\/start(?:@[A-Za-z0-9_]+)?(?:\s|$)/;
 const HELP_COMMAND = /^\/help(?:@[A-Za-z0-9_]+)?(?:\s|$)/;
+const NEW_COMMAND = /^\/new(?:@[A-Za-z0-9_]+)?(?:\s|$)/;
 const ACCESS_COMMAND = /^\/(access|revoke)(?:@[A-Za-z0-9_]+)?(?:\s+(\S+))?\s*$/;
 const TELEGRAM_ID = /^[1-9]\d{0,15}$/;
 const TASK_CALLBACK = /^task:(done|hour|tomorrow):([0-9a-f-]{36})$/;
-const WELCOME_TEXT = "Ваши личные приложения. Выберите, что открыть.";
+/** «Подтвердить» or «Отменить» is `act:<id>`, «Отмена» of a confirmation is `act-no:<id>`. */
+const ACTION_CALLBACK = /^act(-no)?:([0-9a-f-]{36})$/;
+const WELCOME_TEXT =
+  "Ваши личные приложения. Выберите, что открыть, или просто напишите, что нужно: я отвечу и запишу сам.";
 const HELP_WALLET_LINE = "💳 Кошелёк: счета, расходы и доходы, бюджеты, статистика по месяцам.";
 const HELP_NUTRITION_LINE =
   "🥗 Питание: дневник еды по тексту или фото, калории и БЖУ, тренировки, вес, история.";
 const HELP_TASKS_LINE = "📝 Задачи: список дел, заметки и напоминания, в том числе повторяющиеся.";
-const HELP_VOICE_TEXT = [
-  "🎙 Голосовые сообщения: самый быстрый способ что-то записать. Просто отправьте голосовое:",
-  "• «Запиши расход 45000 сум за обед»: расход в кошелёк",
-  "• «Получил зарплату 5 миллионов»: доход в кошелёк",
-  "• «Запиши тренировку, сожжено 420 калорий»: тренировка в питание",
-  "• «Вес 82,4»: взвешивание в питание",
-  "• «Напомни завтра в 10 позвонить в банк»: задача с напоминанием",
-  "• «Каждый понедельник в 9 напоминай про отчёт»: повторяющееся напоминание",
-  "Бот сам разберёт сообщение и ответит, что записал.",
+const HELP_ASSISTANT_TEXT = [
+  "💬 Ассистент: просто напишите, скажите голосом или пришлите фото. Бот сам найдёт данные во всех приложениях и запишет что нужно.",
+  "Спросить:",
+  "• «Сколько я потратил в этом месяце и сколько осталось от бюджета?»",
+  "• «Что у меня сегодня?»",
+  "• «Сколько калорий осталось на сегодня?»",
+  "Записать:",
+  "• «Обед 45 000», «Вчера такси 30 тысяч»: расход",
+  "• «Съел плов, примерно 300 г» или фото тарелки: приём пищи",
+  "• Фото чека: расход",
+  "• «Вес 82,4», «Тренировка, сожжено 420 калорий»",
+  "• «Напомни завтра в 10 позвонить в банк»",
+  "• «Запомни: такси — это категория Транспорт»",
+  "Под каждой записью есть кнопка «↩️ Отменить». Изменить или удалить («удали последний расход», «перенеси звонок на пятницу») бот предложит кнопкой «Подтвердить».",
+  "/new: начать разговор заново.",
 ].join("\n");
 const HELP_REMINDERS_TEXT = [
   "🔔 Если забудете внести еду или расходы, бот напомнит днём и вечером.",
   "О задачах бот напомнит в назначенное время: отметьте «Готово» или отложите кнопкой.",
+  "☀️ Утром бот присылает сводку на день, в воскресенье вечером — итоги недели. Это меняется словами: «присылай сводку в 7:30», «не присылай недельный отчёт».",
 ].join("\n");
 const HELP_ADMIN_TEXT = [
   "🔑 Администратору:",
@@ -95,36 +126,50 @@ const ACCESS_USAGE_TEXT = "Укажите Telegram id числом, наприм
 const REVOKE_USAGE_TEXT = "Укажите Telegram id числом, например: /revoke 123456789";
 const ACCESS_NONE_TEXT = "Доступ пока никому не выдан. Чтобы открыть: /access 123456789";
 const ACCESS_GRANTED_TEXT = "Вам открыт доступ. Нажмите /start, чтобы начать.";
-const VOICE_ACCEPTED_TEXT = "Принято в обработку…";
-const VOICE_RECOGNIZING_TEXT = "Распознаём голос…";
-const VOICE_PARSING_TEXT = "Разбираем сообщение…";
-const VOICE_FAILED_STATUS = "Не удалось распознать";
-const VOICE_FAILED_TEXT = "Не удалось обработать сообщение. Попробуйте ещё раз";
+const NEW_CHAT_TEXT = "Начнём заново. Что нужно сделать или узнать?";
+const ACCEPTED_TEXT = "Принято в обработку…";
+const PHOTO_TEXT = "Смотрю фото…";
+const STAGE_TEXTS: Record<AssistantStage, string> = {
+  recognizing: "Распознаём голос…",
+  thinking: "Думаю…",
+};
+const FAILED_STATUS = "Не получилось";
+const FAILED_TEXT = "Не удалось обработать сообщение. Попробуйте ещё раз";
+const NOT_CONFIGURED_TEXT = "Ассистент не настроен на сервере.";
+const NOTHING_RECORDED = "Ничего не записано.";
 const VOICE_TOO_LONG_TEXT = "Сообщение слишком длинное. Запишите короче, до двух минут";
+const DOWNLOAD_FAILED_TEXT = "Не удалось скачать файл. Попробуйте ещё раз";
 const TASK_GONE_TEXT = "Задача уже удалена";
-const TASK_FAILED_TEXT = "Не получилось. Попробуйте ещё раз";
+const TAP_FAILED_TEXT = "Не получилось. Попробуйте ещё раз";
 const SNOOZE_HOURS = 1;
-// A spoken note about one expense is a few seconds; this keeps a mistaken long recording cheap.
+// A spoken request is a few seconds; this keeps a mistaken long recording cheap.
 const MAX_VOICE_SECONDS = 120;
 const MAX_VOICE_BYTES = 5 * 1024 * 1024;
+/** Enough detail to recognize food or read a receipt; Telegram's bigger sizes only cost more. */
+const MAX_PHOTO_SIDE = 1600;
+/** The diary shows meal photos small. */
+const THUMBNAIL_SIDE = 320;
+const MAX_MESSAGE_LENGTH = 4096;
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 
 /**
- * Long-polls Telegram. People with access get Mini App buttons on /start, a voice message is
- * turned into a wallet operation, a workout or a task (see VoiceTransactionService), and task
- * reminders have buttons. The administrator also manages access with /access and /revoke.
- * Everyone else gets no reply at all.
+ * Talks to Telegram (webhook on production, long polling locally). People with access get
+ * Mini App buttons on /start; any other message (text, voice or photo) goes to the assistant,
+ * and the buttons under its answers and under task reminders are handled here. The
+ * administrator also manages access with /access and /revoke. Everyone else gets no reply.
  */
 @Injectable()
 export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(TelegramBotService.name);
   private readonly stop = new AbortController();
   private task?: Promise<void>;
+  /** Tail of the webhook queue: updates are handled one at a time, in arrival order. */
+  private queue: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly db: PrismaService,
     @Inject(CONFIG) private readonly config: AppConfig,
-    private readonly voice: VoiceTransactionService,
+    private readonly assistant: AssistantService,
     private readonly access: AccessService,
     private readonly tasks: TasksService,
   ) {}
@@ -134,7 +179,26 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
       return;
     }
 
-    await this.call("deleteWebhook", { drop_pending_updates: false });
+    if (this.config.webhook) {
+      await this.call("setWebhook", {
+        url: this.config.webhook.url,
+        secret_token: this.config.webhook.secret,
+        allowed_updates: ALLOWED_UPDATES,
+        drop_pending_updates: false,
+      });
+
+      this.logger.log("Telegram bot started in webhook mode");
+      return;
+    }
+
+    // A webhook means this token belongs to the deployed bot: polling would take it over.
+    const webhook = await this.call<{ url?: string }>("getWebhookInfo", {});
+    if (webhook.url) {
+      this.logger.warn(
+        "The bot has a webhook, so it is not polled here. Use a separate test bot locally",
+      );
+      return;
+    }
 
     this.task = this.poll();
     this.logger.log("Telegram bot started in polling mode");
@@ -144,6 +208,23 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
     this.stop.abort();
 
     await this.task;
+    await this.queue;
+  }
+
+  /**
+   * Accepts an update from the webhook without waiting for it: an answer takes up to a
+   * minute, and Telegram resends updates it gets no answer to. Repeats are skipped anyway.
+   */
+  enqueue(update: Update) {
+    this.queue = this.queue.then(() =>
+      this.handleUpdate(update).catch((error: unknown) => {
+        // The error may carry request URLs with the bot token: log only its type.
+        const kind = error instanceof Error ? error.name : "unknown";
+        this.logger.error(`Telegram update failed: ${kind}`);
+      }),
+    );
+
+    return this.queue;
   }
 
   /** Handles one update. Each update is answered at most once, even after restarts. */
@@ -158,11 +239,16 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
       return;
     }
 
-    const isStart = START_COMMAND.test(message.text || "");
-    const isHelp = HELP_COMMAND.test(message.text || "");
-    const accessCommand = ACCESS_COMMAND.exec(message.text || "");
-    const speech = message.voice ?? message.audio;
-    if (!isStart && !isHelp && !accessCommand && !speech) {
+    const text = message.text || "";
+    const isStart = START_COMMAND.test(text);
+    const isHelp = HELP_COMMAND.test(text);
+    const isNew = NEW_COMMAND.test(text);
+    const accessCommand = ACCESS_COMMAND.exec(text);
+    const isCommand = isStart || isHelp || isNew || Boolean(accessCommand);
+    // Anything else that is not an unknown /command is a message to the assistant.
+    const isChat =
+      !isCommand && (Boolean(message.voice ?? message.audio ?? message.photo) || isPlainText(text));
+    if (!isCommand && !isChat) {
       return;
     }
 
@@ -184,9 +270,15 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
       return;
     }
 
-    if (speech) {
-      // Not retried after a failure: the operation may already be written.
-      await this.handleSpeech(message, speech, update.update_id);
+    if (isChat) {
+      // Not retried after a failure: something may already be recorded.
+      await this.handleChat(message, update.update_id);
+      return;
+    }
+
+    if (isNew) {
+      await this.assistant.restartChat(sender);
+      await this.send(message.chat.id, NEW_CHAT_TEXT, true);
       return;
     }
 
@@ -212,7 +304,11 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
       this.config.tasksAppUrl && HELP_TASKS_LINE,
     ].filter(Boolean);
 
-    const sections = ["Что умеет бот.\n" + apps.join("\n"), HELP_VOICE_TEXT, HELP_REMINDERS_TEXT];
+    const sections = [
+      "Что умеет бот.\n" + apps.join("\n"),
+      HELP_ASSISTANT_TEXT,
+      HELP_REMINDERS_TEXT,
+    ];
 
     if (isAdmin) {
       sections.push(HELP_ADMIN_TEXT);
@@ -274,75 +370,154 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
   }
 
   /**
-   * Reports a voice message in one chat message that changes with the progress and ends with
-   * the result. A failure edits it to "Не удалось распознать" and sends a separate message
-   * with sound, so the owner knows that nothing was recorded. Everything else is silent.
+   * Answers a message in one chat message that shows the progress and then becomes the answer.
+   * A failure turns it into "Не получилось" and sends the reason separately, with sound, so
+   * the person notices even if they have left the chat.
    */
-  private async handleSpeech(message: Message, speech: SpeechFile, updateId: number) {
-    const chatId = message.chat.id;
-    let statusId: number | undefined;
+  private async handleChat(message: Message, updateId: number) {
+    const status: Status = { chatId: message.chat.id };
+    const speech = message.voice ?? message.audio;
 
-    const show = async (text: string) => {
-      try {
-        if (statusId) {
-          await this.call("editMessageText", { chat_id: chatId, message_id: statusId, text });
-          return;
-        }
-      } catch {
-        // Edit failed (e.g. the message was deleted): send a new one instead.
-      }
-      statusId = await this.send(chatId, text, true);
-    };
-    const fail = async (reason: string) => {
-      if (statusId) {
-        await show(VOICE_FAILED_STATUS);
-      }
-      await this.send(chatId, `${reason}\nНичего не записано.`, false);
-    };
-
-    if (!this.voice.enabled) {
-      await fail("Голосовые команды не настроены на сервере.");
-      return;
-    }
-    if ((speech.duration ?? 0) > MAX_VOICE_SECONDS || (speech.file_size ?? 0) > MAX_VOICE_BYTES) {
-      await fail(VOICE_TOO_LONG_TEXT);
+    if (!this.assistant.enabled) {
+      await this.fail(status, `${NOT_CONFIGURED_TEXT}\n${NOTHING_RECORDED}`);
       return;
     }
 
-    await show(VOICE_ACCEPTED_TEXT);
+    if (speech && isTooLong(speech)) {
+      await this.fail(status, `${VOICE_TOO_LONG_TEXT}\n${NOTHING_RECORDED}`);
+      return;
+    }
+
+    await this.showStatus(status, firstStatus(message));
+
     try {
-      await show(VOICE_RECOGNIZING_TEXT);
-      const audio = await this.download(speech.file_id);
-      const text = await this.voice.record({
-        telegramId: BigInt(message.from!.id),
-        audio: audio.data,
-        filename: audio.filename,
-        key: `telegram-voice-${updateId}`,
-        onStage: () => show(VOICE_PARSING_TEXT),
+      const input = await this.chatInput(message, updateId);
+      const reply = await this.assistant.reply({
+        ...input,
+        onStage: (stage) => this.showStatus(status, STAGE_TEXTS[stage]),
       });
-      await show(text);
+
+      await this.showReply(status, reply);
     } catch (error) {
-      if (error instanceof VoiceError) {
-        await fail(error.message);
+      if (error instanceof AssistantError) {
+        await this.fail(status, `${error.message}\n${NOTHING_RECORDED}`);
         return;
       }
+
       // The error may carry request URLs with the bot token: log only its type.
-      this.logger.error(`Voice message failed: ${error instanceof Error ? error.name : "unknown"}`);
-      await fail(VOICE_FAILED_TEXT);
+      this.logger.error(`Chat message failed: ${error instanceof Error ? error.name : "unknown"}`);
+      await this.fail(status, FAILED_TEXT);
     }
   }
 
+  /** The message for the assistant, with the voice or the photo downloaded. */
+  private async chatInput(message: Message, updateId: number): Promise<ChatInput> {
+    const speech = message.voice ?? message.audio;
+
+    return {
+      telegramId: BigInt(message.from!.id),
+      text: message.text ?? message.caption ?? "",
+      audio: speech ? await this.downloadSpeech(speech) : null,
+      photo: message.photo?.length ? await this.downloadPhoto(message.photo) : null,
+      key: `telegram-${updateId}`,
+    };
+  }
+
+  private async downloadSpeech(speech: SpeechFile) {
+    const file = await this.download(speech.file_id);
+    const extension = file.path.split(".").pop() || "ogg";
+
+    return {
+      data: file.data,
+      // Telegram voice notes are Opus in an Ogg container (.oga); providers expect .ogg.
+      filename: `voice.${extension === "oga" ? "ogg" : extension}`,
+    };
+  }
+
+  private async downloadPhoto(sizes: PhotoSize[]) {
+    const bySide = [...sizes].sort((a, b) => longSide(a) - longSide(b));
+    const full = bySide.filter((size) => longSide(size) <= MAX_PHOTO_SIDE).at(-1) ?? bySide[0];
+    const thumbnail = bySide.find((size) => longSide(size) >= THUMBNAIL_SIDE) ?? full;
+
+    const fullFile = await this.download(full.file_id);
+    const thumbnailFile =
+      thumbnail.file_id === full.file_id ? fullFile : await this.download(thumbnail.file_id);
+
+    return { full: fullFile.data, thumbnail: thumbnailFile.data };
+  }
+
+  /** Shows a stage of the work; the same text again is not sent. */
+  private async showStatus(status: Status, text: string) {
+    if (status.text === text) {
+      return;
+    }
+
+    await this.showInStatus(status, text, []);
+  }
+
+  /** The answer replaces the status; a long one continues in more messages, buttons go last. */
+  private async showReply(status: Status, reply: AssistantReply) {
+    const parts = splitText(reply.text, MAX_MESSAGE_LENGTH);
+    const keyboard = reply.buttons.map((row) =>
+      row.map((button) => ({ text: button.text, callback_data: button.data })),
+    );
+
+    for (const [index, part] of parts.entries()) {
+      const buttons = index === parts.length - 1 ? keyboard : [];
+
+      if (index === 0) {
+        await this.showInStatus(status, part, buttons);
+      } else {
+        await this.send(status.chatId, part, true, buttons);
+      }
+    }
+  }
+
+  private async showInStatus(status: Status, text: string, buttons: InlineButton[][]) {
+    status.text = text;
+
+    if (status.messageId) {
+      try {
+        await this.call("editMessageText", {
+          chat_id: status.chatId,
+          message_id: status.messageId,
+          text,
+          ...(buttons.length > 0 && { reply_markup: { inline_keyboard: buttons } }),
+        });
+        return;
+      } catch {
+        // Edit failed (e.g. the message was deleted): send a new one instead.
+      }
+    }
+
+    status.messageId = await this.send(status.chatId, text, true, buttons);
+  }
+
+  private async fail(status: Status, reason: string) {
+    if (status.messageId) {
+      await this.showStatus(status, FAILED_STATUS);
+    }
+
+    await this.send(status.chatId, reason, false);
+  }
+
   /** Sends a message; returns its id, or undefined if Telegram refused. */
-  private async send(chatId: number, text: string, silent: boolean) {
+  private async send(
+    chatId: number,
+    text: string,
+    silent: boolean,
+    buttons: InlineButton[][] = [],
+  ) {
     try {
       const sent = await this.call<{ message_id?: number }>("sendMessage", {
         chat_id: chatId,
         text,
         disable_notification: silent,
+        ...(buttons.length > 0 && { reply_markup: { inline_keyboard: buttons } }),
       });
       return sent.message_id;
     } catch {
-      this.logger.warn("Could not send a voice reply");
+      this.logger.warn("Could not send a reply");
       return undefined;
     }
   }
@@ -353,6 +528,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
       if (!file.file_path) {
         throw new Error("No file path");
       }
+
       const response = await fetch(
         `https://api.telegram.org/file/bot${this.config.botToken}/${file.file_path}`,
         { signal: AbortSignal.any([this.stop.signal, AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS)]) },
@@ -360,14 +536,10 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
       if (!response.ok) {
         throw new Error("Download failed");
       }
-      const extension = file.file_path.split(".").pop() || "ogg";
-      return {
-        data: Buffer.from(await response.arrayBuffer()),
-        // Telegram voice notes are Opus in an Ogg container (.oga); providers expect .ogg.
-        filename: `voice.${extension === "oga" ? "ogg" : extension}`,
-      };
+
+      return { data: Buffer.from(await response.arrayBuffer()), path: file.file_path };
     } catch {
-      throw new VoiceError("Не удалось скачать голосовое сообщение. Попробуйте ещё раз");
+      throw new AssistantError(DOWNLOAD_FAILED_TEXT);
     }
   }
 
@@ -394,8 +566,9 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
   }
 
   /**
-   * "Готово", "Через час" and "Завтра" under a task reminder. The tap is confirmed with a
-   * short popup, and the message gets the outcome instead of the buttons.
+   * A tap on a button: "Готово", "Через час" and "Завтра" under a task reminder, or
+   * «Подтвердить», «Отмена» and «Отменить» under an answer of the assistant. The tap is
+   * confirmed with a short popup, and the message gets the outcome.
    */
   private async handleCallback(updateId: number, query: CallbackQuery) {
     const sender = BigInt(query.from.id);
@@ -403,31 +576,39 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
       return;
     }
 
-    const match = TASK_CALLBACK.exec(query.data ?? "");
-    if (!match || !(await this.markProcessed(BigInt(updateId)))) {
+    const data = query.data ?? "";
+    const task = TASK_CALLBACK.exec(data);
+    const action = ACTION_CALLBACK.exec(data);
+    if ((!task && !action) || !(await this.markProcessed(BigInt(updateId)))) {
       await this.answerCallback(query.id);
       return;
     }
 
     let outcome: string;
     try {
-      outcome = await this.runTaskAction(sender, match[1] as TaskAction, match[2]);
+      outcome = task
+        ? await this.runTaskAction(sender, task[1] as TaskAction, task[2])
+        : await this.assistant.resolveAction(sender, action![2], !action![1]);
     } catch {
-      this.logger.warn("Task button failed");
+      this.logger.warn("Button tap failed");
       await this.db.botUpdate.delete({ where: { updateId: BigInt(updateId) } });
-      await this.answerCallback(query.id, TASK_FAILED_TEXT);
+      await this.answerCallback(query.id, TAP_FAILED_TEXT);
       return;
     }
 
     await this.answerCallback(query.id, outcome);
 
     if (query.message) {
+      const buttons = task
+        ? this.appButtons(["tasks"])
+        : otherButtons(query.message.reply_markup?.inline_keyboard ?? [], action![2]);
+
       await this.call("editMessageText", {
         chat_id: query.message.chat.id,
         message_id: query.message.message_id,
         text: [query.message.text, outcome].filter(Boolean).join("\n\n"),
-        reply_markup: { inline_keyboard: this.appButtons(["tasks"]) },
-      }).catch(() => this.logger.warn("Could not update a task reminder"));
+        reply_markup: { inline_keyboard: buttons },
+      }).catch(() => this.logger.warn("Could not update the message after a tap"));
     }
   }
 
@@ -492,7 +673,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
         const updates = await this.call<Update[]>("getUpdates", {
           offset,
           timeout: POLL_TIMEOUT_SECONDS,
-          allowed_updates: ["message", "callback_query"],
+          allowed_updates: ALLOWED_UPDATES,
         });
         for (const update of updates) {
           if (this.stop.signal.aborted) {
@@ -548,4 +729,55 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
     }
     return result.result;
   }
+}
+
+/** What the status says before the work starts. */
+function firstStatus(message: Message) {
+  if (message.voice ?? message.audio) {
+    return ACCEPTED_TEXT;
+  }
+
+  return message.photo ? PHOTO_TEXT : STAGE_TEXTS.thinking;
+}
+
+/** Text that is not a /command. */
+function isPlainText(text: string) {
+  return text.trim().length > 0 && !text.startsWith("/");
+}
+
+function isTooLong(speech: SpeechFile) {
+  return (speech.duration ?? 0) > MAX_VOICE_SECONDS || (speech.file_size ?? 0) > MAX_VOICE_BYTES;
+}
+
+function longSide(size: PhotoSize) {
+  return Math.max(size.width, size.height);
+}
+
+/** The buttons of a message without the ones of a handled action. */
+function otherButtons(keyboard: InlineButton[][], actionId: string) {
+  return keyboard
+    .map((row) =>
+      row.filter(
+        (button) => !("callback_data" in button) || !button.callback_data.endsWith(actionId),
+      ),
+    )
+    .filter((row) => row.length > 0);
+}
+
+/** Splits a long answer at line breaks into parts Telegram accepts. */
+export function splitText(text: string, limit: number) {
+  const parts: string[] = [];
+  let rest = text;
+
+  while (rest.length > limit) {
+    const cut = rest.lastIndexOf("\n", limit);
+    const end = cut > 0 ? cut : limit;
+
+    parts.push(rest.slice(0, end));
+    rest = rest.slice(end).replace(/^\n/, "");
+  }
+
+  parts.push(rest);
+
+  return parts;
 }

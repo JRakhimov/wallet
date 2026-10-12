@@ -17,15 +17,23 @@ const LLM_API_KEY_ENV: Record<LlmProvider, string> = {
 const DEFAULT_LLM_MODEL: Partial<Record<LlmProvider, string>> = { claude: "claude-opus-5-5" };
 const DEFAULT_PHOTO_DIR = "data/photos";
 
-/** Voice messages to the bot; null when OPENAI_API_KEY is not set. */
+/** Speech recognition for voice messages; null when OPENAI_API_KEY is not set. */
 export type VoiceConfig = {
   apiKey: string;
   /** Set to use a self-hosted OpenAI-compatible Whisper server instead of OpenAI. */
   transcriptionBaseUrl: string | undefined;
   transcriptionModel: string;
-  /** Model that picks kind, amount and category out of the transcript. */
-  parserModel: string;
 };
+
+/** The chat assistant in the bot; null when OPENAI_API_KEY is not set. */
+export type AssistantConfig = { apiKey: string; model: string };
+
+const DEFAULT_ASSISTANT_MODEL = "gpt-6-luna";
+
+/** Telegram pushes updates to `url`, signed with `secret` in a header. */
+export type WebhookConfig = { url: string; secret: string };
+
+const WEBHOOK_SECRET = /^[A-Za-z0-9_-]{32,256}$/;
 
 export interface AppConfig {
   env: string;
@@ -38,12 +46,15 @@ export interface AppConfig {
   ownerTelegramId: bigint;
   /** Long-poll Telegram even in dev mode (BOT_IN_DEV=true). Off by default so a local API never competes with the deployed bot for updates. */
   botInDev: boolean;
+  /** Webhook mode when TELEGRAM_WEBHOOK_URL is set; long polling otherwise. */
+  webhook: WebhookConfig | null;
   miniAppUrl: string;
   /** Nutrition Mini App URL for the bot's /start buttons; empty when not deployed. */
   nutritionAppUrl: string;
   /** Tasks Mini App URL for the bot's buttons; empty when not deployed. */
   tasksAppUrl: string;
   voice: VoiceConfig | null;
+  assistant: AssistantConfig | null;
   nutrition: {
     llm: LlmConfig | null;
     /** Absolute folder for meal photos (PhotoStorage on disk). */
@@ -107,6 +118,8 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error("BOT_IN_DEV requires BOT_TOKEN and OWNER_TELEGRAM_ID");
   }
 
+  const webhook = readWebhookConfig(env);
+
   const port = Number(env.PORT || 3001);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error("Invalid PORT");
@@ -123,15 +136,36 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     // Dev login uses owner 0, unless the bot runs locally: then both must be the real owner.
     ownerTelegramId: dev && !botInDev ? 0n : BigInt(ownerTelegramId || 0),
     botInDev,
+    webhook,
     miniAppUrl,
     nutritionAppUrl,
     tasksAppUrl,
     voice: readVoiceConfig(env),
+    assistant: readAssistantConfig(env),
     nutrition: {
       llm: readLlmConfig(env),
       photoDir: resolve(env.PHOTO_STORAGE_DIR || DEFAULT_PHOTO_DIR),
     },
   };
+}
+
+/** The webhook needs an HTTPS URL and a secret Telegram sends back with every update. */
+function readWebhookConfig(env: NodeJS.ProcessEnv): WebhookConfig | null {
+  const url = env.TELEGRAM_WEBHOOK_URL || "";
+  if (!url) {
+    return null;
+  }
+
+  if (new URL(url).protocol !== "https:") {
+    throw new Error("TELEGRAM_WEBHOOK_URL must be HTTPS");
+  }
+
+  const secret = env.TELEGRAM_WEBHOOK_SECRET || "";
+  if (!WEBHOOK_SECRET.test(secret)) {
+    throw new Error("TELEGRAM_WEBHOOK_SECRET must be 32-256 characters: letters, digits, _ and -");
+  }
+
+  return { url, secret };
 }
 
 /** Meal recognition is optional: without an API key the rest of the API still works. */
@@ -161,6 +195,15 @@ function readVoiceConfig(env: NodeJS.ProcessEnv): VoiceConfig | null {
     apiKey,
     transcriptionBaseUrl: env.WHISPER_BASE_URL || undefined,
     transcriptionModel: env.WHISPER_MODEL || "whisper-1",
-    parserModel: env.VOICE_LLM_MODEL || "gpt-4o-mini",
   };
+}
+
+/** The assistant is optional: without a key the bot says it is not set up. */
+function readAssistantConfig(env: NodeJS.ProcessEnv): AssistantConfig | null {
+  const apiKey = env.OPENAI_API_KEY || "";
+  if (!apiKey) {
+    return null;
+  }
+
+  return { apiKey, model: env.ASSISTANT_LLM_MODEL || DEFAULT_ASSISTANT_MODEL };
 }

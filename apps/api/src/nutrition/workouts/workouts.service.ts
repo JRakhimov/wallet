@@ -55,6 +55,10 @@ export class WorkoutsService {
     return workoutView(workout);
   }
 
+  async get(ownerId: string, id: string) {
+    return workoutView(await this.find(ownerId, id));
+  }
+
   async remove(ownerId: string, id: string) {
     await this.find(ownerId, id);
     await this.db.workout.update({ where: { id }, data: { deletedAt: new Date() } });

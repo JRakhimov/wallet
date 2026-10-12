@@ -4,10 +4,16 @@ import { test, type TestContext } from "node:test";
 import { Prisma } from "@prisma/client";
 import { readConfig } from "../src/config/app-config";
 import { AccessService } from "../src/access/access.service";
+import {
+  AssistantError,
+  AssistantReply,
+  AssistantService,
+  ChatInput,
+} from "../src/assistant/assistant.service";
 import { PrismaService } from "../src/prisma/prisma.service";
 import { TasksService } from "../src/tasks/tasks.service";
 import { TelegramBotService } from "../src/telegram/telegram-bot.service";
-import { VoiceError, VoiceTransactionService } from "../src/voice/voice-transaction.service";
+import { TelegramWebhookController } from "../src/telegram/telegram-webhook.controller";
 
 const config = readConfig({
   NODE_ENV: "production",
@@ -21,7 +27,7 @@ const update = {
   update_id: 42,
   message: { text: "/start", from: { id: 123 }, chat: { id: 123, type: "private" } },
 };
-const noVoice = { enabled: false } as unknown as VoiceTransactionService;
+const noAssistant = { enabled: false } as unknown as AssistantService;
 const noTasks = {} as unknown as TasksService;
 const ADMIN_ID = 123n;
 /** In-memory stand-in for AccessService: 123 is the administrator, `granted` holds the rest. */
@@ -57,7 +63,7 @@ function database() {
   };
 }
 
-test("polling deletes webhook, acknowledges processed updates and aborts on shutdown", async (t) => {
+test("polling checks for a webhook, acknowledges processed updates and aborts on shutdown", async (t) => {
   const db = database(),
     calls: { method: string; body: Record<string, unknown> }[] = [];
   let waiting!: () => void;
@@ -80,7 +86,7 @@ test("polling deletes webhook, acknowledges processed updates and aborts on shut
   const bot = new TelegramBotService(
     db as unknown as PrismaService,
     config,
-    noVoice,
+    noAssistant,
     access,
     noTasks,
   );
@@ -89,9 +95,8 @@ test("polling deletes webhook, acknowledges processed updates and aborts on shut
     await blocked;
     assert.deepEqual(
       calls.map((c) => c.method),
-      ["deleteWebhook", "getUpdates", "sendMessage", "getUpdates"],
+      ["getWebhookInfo", "getUpdates", "sendMessage", "getUpdates"],
     );
-    assert.equal(calls[0].body.drop_pending_updates, false);
     assert.equal(calls[3].body.offset, 43);
     assert.deepEqual(calls[1].body.allowed_updates, ["message", "callback_query"]);
   } finally {
@@ -110,7 +115,7 @@ test("only owner /start is answered; duplicates are ignored and failed sends can
   const bot = new TelegramBotService(
     db as unknown as PrismaService,
     config,
-    noVoice,
+    noAssistant,
     access,
     noTasks,
   );
@@ -136,7 +141,7 @@ test("local development does not start the Telegram bot", async (t) => {
   const bot = new TelegramBotService(
     database() as unknown as PrismaService,
     { ...config, dev: true },
-    noVoice,
+    noAssistant,
     access,
     noTasks,
   );
@@ -155,7 +160,7 @@ test("/start shows a button for every deployed mini app", async (t) => {
   await new TelegramBotService(
     database() as unknown as PrismaService,
     config,
-    noVoice,
+    noAssistant,
     access,
     noTasks,
   ).handleUpdate(update);
@@ -163,7 +168,7 @@ test("/start shows a button for every deployed mini app", async (t) => {
   await new TelegramBotService(
     database() as unknown as PrismaService,
     withNutrition,
-    noVoice,
+    noAssistant,
     access,
     noTasks,
   ).handleUpdate(update);
@@ -177,129 +182,278 @@ test("/start shows a button for every deployed mini app", async (t) => {
   ]);
 });
 
+const chat = { from: { id: 123 }, chat: { id: 123, type: "private" } };
 const voiceUpdate = {
   update_id: 77,
-  message: {
-    voice: { file_id: "file-1", duration: 4, file_size: 20_000 },
-    from: { id: 123 },
-    chat: { id: 123, type: "private" },
-  },
+  message: { voice: { file_id: "voice-1", duration: 4, file_size: 20_000 }, ...chat },
 };
+const textUpdate = { update_id: 80, message: { text: "сколько я потратил?", ...chat } };
 
-function mockTelegram(t: import("node:test").TestContext) {
-  const sent: string[] = [];
-  const edited: string[] = [];
-  const silent: unknown[] = [];
+/** Telegram stand-in: getFile answers `<id>.jpg` paths, downloads return `files[id]`. */
+function mockTelegram(t: TestContext, files: Record<string, number[]> = {}) {
+  const calls: { method: string; body: Record<string, unknown> }[] = [];
+
   t.mock.method(globalThis, "fetch", async (url: string, options?: RequestInit) => {
     if (url.includes("/file/bot")) {
-      return new Response(new Uint8Array([1, 2, 3]));
+      const id = url.split("/").at(-1)!.split(".")[0];
+      return new Response(new Uint8Array(files[id] ?? [1, 2, 3]));
     }
+
     const method = url.split("/").at(-1)!;
     const body = JSON.parse(String(options?.body));
-    if (method === "sendMessage") {
-      sent.push(body.text);
-      silent.push(body.disable_notification);
+    calls.push({ method, body });
+
+    if (method === "getFile") {
+      const extension = body.file_id.startsWith("voice") ? "oga" : "jpg";
+      return Response.json({
+        ok: true,
+        result: { file_path: `files/${body.file_id}.${extension}` },
+      });
     }
-    if (method === "editMessageText") {
-      assert.equal(body.message_id, 500);
-      edited.push(body.text);
-    }
-    const results: Record<string, unknown> = {
-      getFile: { file_path: "voice/a.oga" },
-      sendMessage: { message_id: 500 },
-    };
-    return Response.json({ ok: true, result: results[method] ?? true });
+
+    const result = method === "sendMessage" ? { message_id: 500 } : true;
+    return Response.json({ ok: true, result });
   });
-  return { sent, edited, silent };
+
+  const of = (method: string) => calls.filter((call) => call.method === method);
+
+  return {
+    calls,
+    sent: () => of("sendMessage").map((call) => call.body.text),
+    edited: () => of("editMessageText").map((call) => call.body.text),
+    silent: () => of("sendMessage").map((call) => call.body.disable_notification),
+    of,
+  };
 }
 
-test("a voice message is acknowledged, recorded once and the result is sent back", async (t) => {
-  const { sent, edited, silent } = mockTelegram(t);
-  const recorded: { key: string; filename: string; size: number }[] = [];
-  const voice = {
+function fakeAssistant(answer: (input: ChatInput) => Promise<AssistantReply>) {
+  const inputs: ChatInput[] = [];
+  const resolved: { telegramId: bigint; id: string; approve: boolean }[] = [];
+  const restarted: bigint[] = [];
+
+  const assistant = {
     enabled: true,
-    async record(input: {
-      key: string;
-      filename: string;
-      audio: Buffer;
-      onStage: (stage: "parsing") => Promise<void>;
-    }) {
-      await input.onStage("parsing");
-      recorded.push({ key: input.key, filename: input.filename, size: input.audio.length });
-      return "Расход 45 000 сум за обед записан";
+    async reply(input: ChatInput) {
+      inputs.push(input);
+      return answer(input);
     },
-  } as unknown as VoiceTransactionService;
-  const bot = new TelegramBotService(
+    async resolveAction(telegramId: bigint, id: string, approve: boolean) {
+      resolved.push({ telegramId, id, approve });
+      return approve ? "🗑 Удалено" : "✖️ Отменено";
+    },
+    async restartChat(telegramId: bigint) {
+      restarted.push(telegramId);
+    },
+  };
+
+  return { assistant: assistant as unknown as AssistantService, inputs, resolved, restarted };
+}
+
+function chatBot(assistant: AssistantService) {
+  return new TelegramBotService(
     database() as unknown as PrismaService,
     config,
-    voice,
+    assistant,
     access,
     noTasks,
   );
+}
+
+const UNDO = "act:55555555-5555-4555-8555-555555555555";
+
+test("a voice message shows its progress, is answered once and gets the answer's buttons", async (t) => {
+  const telegram = mockTelegram(t);
+  const { assistant, inputs } = fakeAssistant(async (input) => {
+    await input.onStage!("recognizing");
+    await input.onStage!("thinking");
+
+    return {
+      text: "Расход 45 000 сум за обед записан · Кафе",
+      buttons: [[{ text: "↩️ Отменить", data: UNDO }]],
+    };
+  });
+  const bot = chatBot(assistant);
 
   await bot.handleUpdate(voiceUpdate);
   await bot.handleUpdate(voiceUpdate);
 
-  assert.deepEqual(sent, ["Принято в обработку…"]);
-  assert.deepEqual(edited, [
+  assert.deepEqual(telegram.sent(), ["Принято в обработку…"]);
+  assert.deepEqual(telegram.silent(), [true]);
+  assert.deepEqual(telegram.edited(), [
     "Распознаём голос…",
-    "Разбираем сообщение…",
-    "Расход 45 000 сум за обед записан",
+    "Думаю…",
+    "Расход 45 000 сум за обед записан · Кафе",
   ]);
-  assert.deepEqual(silent, [true]);
-  assert.deepEqual(recorded, [{ key: "telegram-voice-77", filename: "voice.ogg", size: 3 }]);
+  assert.deepEqual(telegram.of("editMessageText").at(-1)!.body.reply_markup, {
+    inline_keyboard: [[{ text: "↩️ Отменить", callback_data: UNDO }]],
+  });
+
+  assert.equal(inputs.length, 1);
+  assert.equal(inputs[0].key, "telegram-77");
+  assert.equal(inputs[0].audio?.filename, "voice.ogg");
+  assert.equal(inputs[0].audio?.data.length, 3);
+  assert.equal(inputs[0].photo, null);
 });
 
-test("voice failures are reported in the chat; strangers and long recordings are not processed", async (t) => {
-  const { sent, edited, silent } = mockTelegram(t);
-  const voice = {
-    enabled: true,
-    async record() {
-      throw new VoiceError("Не понял");
-    },
-  } as unknown as VoiceTransactionService;
-  const bot = new TelegramBotService(
-    database() as unknown as PrismaService,
-    config,
-    voice,
-    access,
-    noTasks,
-  );
-
-  await bot.handleUpdate(voiceUpdate);
-  // The status turns into "failed", and the reason arrives as a separate message with sound.
-  assert.deepEqual(sent, ["Принято в обработку…", "Не понял\nНичего не записано."]);
-  assert.deepEqual(edited, ["Распознаём голос…", "Не удалось распознать"]);
-  assert.deepEqual(silent, [true, false]);
-
-  sent.length = 0;
-  await bot.handleUpdate({
-    update_id: 78,
-    message: { ...voiceUpdate.message, voice: { file_id: "x", duration: 600 } },
+test("a text message goes to the assistant and the answer replaces «Думаю…»", async (t) => {
+  const telegram = mockTelegram(t);
+  const { assistant, inputs } = fakeAssistant(async (input) => {
+    await input.onStage!("thinking");
+    return { text: "В октябре потрачено 3 800 000 сум", buttons: [] };
   });
-  assert.deepEqual(sent, [
+
+  await chatBot(assistant).handleUpdate(textUpdate);
+
+  assert.deepEqual(telegram.sent(), ["Думаю…"]);
+  assert.deepEqual(telegram.edited(), ["В октябре потрачено 3 800 000 сум"]);
+  assert.equal(telegram.of("editMessageText")[0].body.reply_markup, undefined);
+  assert.equal(inputs[0].text, "сколько я потратил?");
+  assert.equal(inputs[0].audio, null);
+  assert.equal(inputs[0].key, "telegram-80");
+});
+
+test("a photo goes in a size fit for recognition, with a small copy for the diary", async (t) => {
+  const telegram = mockTelegram(t, { l: [1, 2, 3, 4], m: [5, 6] });
+  const { assistant, inputs } = fakeAssistant(async () => ({ text: "🍽 Записал", buttons: [] }));
+
+  await chatBot(assistant).handleUpdate({
+    update_id: 81,
+    message: {
+      ...chat,
+      caption: "обед",
+      photo: [
+        { file_id: "s", width: 90, height: 68 },
+        { file_id: "m", width: 320, height: 240 },
+        { file_id: "l", width: 1280, height: 960 },
+        { file_id: "xl", width: 2560, height: 1920 },
+      ],
+    },
+  });
+
+  assert.deepEqual(telegram.sent(), ["Смотрю фото…"]);
+  assert.equal(inputs[0].text, "обед");
+  assert.deepEqual([...inputs[0].photo!.full], [1, 2, 3, 4]);
+  assert.deepEqual([...inputs[0].photo!.thumbnail], [5, 6]);
+});
+
+test("a long answer is split at a line break; the buttons go under the last part", async (t) => {
+  const telegram = mockTelegram(t);
+  const first = "а".repeat(4000);
+  const second = "б".repeat(200);
+  const { assistant } = fakeAssistant(async () => ({
+    text: `${first}\n${second}`,
+    buttons: [[{ text: "↩️ Отменить", data: UNDO }]],
+  }));
+
+  await chatBot(assistant).handleUpdate(textUpdate);
+
+  assert.deepEqual(telegram.edited(), [first]);
+  assert.deepEqual(telegram.sent(), ["Думаю…", second]);
+  assert.equal(telegram.of("editMessageText")[0].body.reply_markup, undefined);
+  assert.deepEqual(telegram.of("sendMessage")[1].body.reply_markup, {
+    inline_keyboard: [[{ text: "↩️ Отменить", callback_data: UNDO }]],
+  });
+});
+
+test("failures are reported with sound; unknown commands and strangers get nothing", async (t) => {
+  const telegram = mockTelegram(t);
+  let failure: Error = new AssistantError("Не понял");
+  const { assistant, inputs } = fakeAssistant(async () => {
+    throw failure;
+  });
+  const bot = chatBot(assistant);
+
+  await bot.handleUpdate(textUpdate);
+  // The status turns into "failed", and the reason arrives as a separate message with sound.
+  assert.deepEqual(telegram.sent(), ["Думаю…", "Не понял\nНичего не записано."]);
+  assert.deepEqual(telegram.edited(), ["Не получилось"]);
+  assert.deepEqual(telegram.silent(), [true, false]);
+
+  // Something unexpected may have happened after a record: no promise that nothing was saved.
+  failure = new Error("Boom");
+  await bot.handleUpdate({ ...textUpdate, update_id: 82 });
+  assert.equal(telegram.sent().at(-1), "Не удалось обработать сообщение. Попробуйте ещё раз");
+
+  telegram.calls.length = 0;
+  await bot.handleUpdate({ update_id: 83, message: { text: "/unknown", ...chat } });
+  await bot.handleUpdate({ update_id: 84, message: { ...textUpdate.message, from: { id: 999 } } });
+  await bot.handleUpdate({
+    update_id: 85,
+    message: { ...chat, voice: { file_id: "voice-2", duration: 600 } },
+  });
+
+  assert.deepEqual(telegram.sent(), [
     "Сообщение слишком длинное. Запишите короче, до двух минут\nНичего не записано.",
   ]);
-
-  sent.length = 0;
-  await bot.handleUpdate({
-    update_id: 79,
-    message: { ...voiceUpdate.message, from: { id: 999 } },
-  });
-  assert.deepEqual(sent, []);
+  assert.equal(inputs.length, 2);
 });
 
-test("voice commands report that they are not configured", async (t) => {
-  const { sent } = mockTelegram(t);
-  const bot = new TelegramBotService(
-    database() as unknown as PrismaService,
-    config,
-    noVoice,
-    access,
-    noTasks,
-  );
-  await bot.handleUpdate(voiceUpdate);
-  assert.deepEqual(sent, ["Голосовые команды не настроены на сервере.\nНичего не записано."]);
+test("without the assistant configured the bot says so", async (t) => {
+  const telegram = mockTelegram(t);
+
+  await chatBot(noAssistant).handleUpdate(voiceUpdate);
+
+  assert.deepEqual(telegram.sent(), ["Ассистент не настроен на сервере.\nНичего не записано."]);
+});
+
+test("/new starts the conversation over", async (t) => {
+  const telegram = mockTelegram(t);
+  const { assistant, restarted, inputs } = fakeAssistant(async () => ({ text: "", buttons: [] }));
+
+  await chatBot(assistant).handleUpdate({ update_id: 86, message: { text: "/new", ...chat } });
+
+  assert.deepEqual(restarted, [123n]);
+  assert.deepEqual(telegram.sent(), ["Начнём заново. Что нужно сделать или узнать?"]);
+  assert.equal(inputs.length, 0);
+});
+
+const ACTION_ID = "33333333-3333-4333-8333-333333333333";
+const OTHER_ID = "44444444-4444-4444-8444-444444444444";
+const confirmKeyboard = [
+  [
+    { text: "✅ 1", callback_data: `act:${ACTION_ID}` },
+    { text: "✖️ 1", callback_data: `act-no:${ACTION_ID}` },
+  ],
+  [
+    { text: "✅ 2", callback_data: `act:${OTHER_ID}` },
+    { text: "✖️ 2", callback_data: `act-no:${OTHER_ID}` },
+  ],
+];
+
+test("confirmation buttons run the action once and leave the other buttons in place", async (t) => {
+  const telegram = mockTelegram(t);
+  const { assistant, resolved } = fakeAssistant(async () => ({ text: "", buttons: [] }));
+  const bot = chatBot(assistant);
+  const tap = (updateId: number, data: string, from = 123) => ({
+    update_id: updateId,
+    callback_query: {
+      id: `q${updateId}`,
+      from: { id: from },
+      data,
+      message: {
+        message_id: 900,
+        chat: { id: from },
+        text: "Ждут подтверждения",
+        reply_markup: { inline_keyboard: confirmKeyboard },
+      },
+    },
+  });
+
+  await bot.handleUpdate(tap(600, `act:${ACTION_ID}`));
+  await bot.handleUpdate(tap(600, `act:${ACTION_ID}`));
+  await bot.handleUpdate(tap(601, `act-no:${OTHER_ID}`));
+  await bot.handleUpdate(tap(602, `act:${OTHER_ID}`, 999));
+
+  assert.deepEqual(resolved, [
+    { telegramId: 123n, id: ACTION_ID, approve: true },
+    { telegramId: 123n, id: OTHER_ID, approve: false },
+  ]);
+
+  const [answer] = telegram.of("answerCallbackQuery");
+  const [edit] = telegram.of("editMessageText");
+  assert.equal(answer.body.text, "🗑 Удалено");
+  assert.equal(edit.body.text, "Ждут подтверждения\n\n🗑 Удалено");
+  assert.deepEqual(edit.body.reply_markup, { inline_keyboard: [confirmKeyboard[1]] });
 });
 
 function accessFixture(t: TestContext) {
@@ -315,7 +469,7 @@ function accessFixture(t: TestContext) {
   const bot = new TelegramBotService(
     database() as unknown as PrismaService,
     config,
-    noVoice,
+    noAssistant,
     control as unknown as AccessService,
     noTasks,
   );
@@ -390,7 +544,7 @@ test("/help explains the bot to allowed users and adds the access commands for t
 
   assert.equal(sent.length, 2);
   assert.equal(sent[0].chat, 555);
-  assert.match(sent[0].text, /Голосовые сообщения/);
+  assert.match(sent[0].text, /Ассистент/);
   assert.match(sent[0].text, /Кошелёк/);
   assert.doesNotMatch(sent[0].text, /\/access/);
   assert.match(sent[1].text, /\/access/);
@@ -444,7 +598,7 @@ function taskButtonsFixture(t: TestContext, repeat = "none") {
   const bot = new TelegramBotService(
     database() as unknown as PrismaService,
     { ...config, tasksAppUrl: "https://tasks.example" },
-    noVoice,
+    noAssistant,
     access,
     tasks,
   );
@@ -495,4 +649,144 @@ test("strangers' taps are ignored and someone else's task is not found", async (
   await bot.handleUpdate(callbackUpdate(511, "task:done:22222222-2222-4222-8222-222222222222"));
   assert.deepEqual(completed, []);
   assert.equal(calls[0].body.text, "Задача уже удалена");
+});
+
+const SECRET = "s".repeat(32);
+const webhookConfig = {
+  ...config,
+  webhook: { url: "https://api.example/api/telegram/webhook", secret: SECRET },
+};
+
+function recordCalls(t: TestContext, results: Record<string, unknown> = {}) {
+  const calls: { method: string; body: Record<string, unknown> }[] = [];
+
+  t.mock.method(globalThis, "fetch", async (url: string, options: RequestInit) => {
+    const method = url.split("/").at(-1)!;
+    calls.push({ method, body: JSON.parse(String(options.body)) });
+
+    return Response.json({ ok: true, result: results[method] ?? true });
+  });
+
+  return calls;
+}
+
+test("webhook mode registers the webhook with its secret and does not poll", async (t) => {
+  const calls = recordCalls(t);
+  const bot = new TelegramBotService(
+    database() as unknown as PrismaService,
+    webhookConfig,
+    noAssistant,
+    access,
+    noTasks,
+  );
+
+  await bot.onApplicationBootstrap();
+  await bot.onModuleDestroy();
+
+  assert.deepEqual(
+    calls.map((call) => call.method),
+    ["setWebhook"],
+  );
+  assert.deepEqual(calls[0].body, {
+    url: "https://api.example/api/telegram/webhook",
+    secret_token: SECRET,
+    allowed_updates: ["message", "callback_query"],
+    drop_pending_updates: false,
+  });
+});
+
+test("a local bot does not take over a token that has a webhook", async (t) => {
+  const calls = recordCalls(t, { getWebhookInfo: { url: "https://api.example/hook" } });
+  const bot = new TelegramBotService(
+    database() as unknown as PrismaService,
+    config,
+    noAssistant,
+    access,
+    noTasks,
+  );
+
+  await bot.onApplicationBootstrap();
+  await bot.onModuleDestroy();
+
+  assert.deepEqual(
+    calls.map((call) => call.method),
+    ["getWebhookInfo"],
+  );
+});
+
+test("webhook updates are handled one at a time, in order, and a failure does not stop the rest", async (t) => {
+  recordCalls(t);
+  const bot = new TelegramBotService(
+    database() as unknown as PrismaService,
+    webhookConfig,
+    noAssistant,
+    access,
+    noTasks,
+  );
+
+  const handled: number[] = [];
+  let running = 0;
+  t.mock.method(bot, "handleUpdate", async (incoming: { update_id: number }) => {
+    running++;
+    assert.equal(running, 1);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    running--;
+
+    if (incoming.update_id === 2) {
+      throw new Error("Boom");
+    }
+
+    handled.push(incoming.update_id);
+  });
+
+  void bot.enqueue({ update_id: 1 });
+  void bot.enqueue({ update_id: 2 });
+  await bot.enqueue({ update_id: 3 });
+
+  assert.deepEqual(handled, [1, 3]);
+});
+
+test("the webhook accepts only requests signed with the secret", async () => {
+  const queued: unknown[] = [];
+  const bot = { enqueue: (update: unknown) => queued.push(update) };
+  const controller = new TelegramWebhookController(
+    webhookConfig,
+    bot as unknown as TelegramBotService,
+  );
+
+  assert.throws(() => controller.receive(undefined, { update_id: 1 }), /Unauthorized/);
+  assert.throws(() => controller.receive("wrong", { update_id: 1 }), /Unauthorized/);
+  assert.deepEqual(controller.receive(SECRET, { update_id: 1 }), { ok: true });
+  assert.deepEqual(queued, [{ update_id: 1 }]);
+
+  const polling = new TelegramWebhookController(config, bot as unknown as TelegramBotService);
+  assert.throws(() => polling.receive(SECRET, { update_id: 2 }), /Not Found/);
+});
+
+test("the webhook needs an HTTPS URL and a long secret", () => {
+  const base = {
+    NODE_ENV: "production",
+    APP_ORIGIN: "https://wallet.example",
+    DATABASE_URL: "postgresql://localhost/wallet",
+    BOT_TOKEN: "123:token",
+    OWNER_TELEGRAM_ID: "123",
+  };
+
+  assert.equal(readConfig(base).webhook, null);
+  assert.throws(
+    () => readConfig({ ...base, TELEGRAM_WEBHOOK_URL: "http://api.example/hook" }),
+    /HTTPS/,
+  );
+  assert.throws(
+    () => readConfig({ ...base, TELEGRAM_WEBHOOK_URL: "https://api.example/hook" }),
+    /TELEGRAM_WEBHOOK_SECRET/,
+  );
+  assert.deepEqual(
+    readConfig({
+      ...base,
+      TELEGRAM_WEBHOOK_URL: "https://api.example/hook",
+      TELEGRAM_WEBHOOK_SECRET: SECRET,
+    }).webhook,
+    { url: "https://api.example/hook", secret: SECRET },
+  );
 });
