@@ -81,8 +81,12 @@ export class ReminderService implements OnApplicationBootstrap, OnModuleDestroy 
       const settings = await this.settings.get(owner.id);
 
       for (const kind of dueReminders(local)) {
-        // The morning brief already lists the day's charges.
+        // The briefs already list the charges: the morning one today's, the evening one tomorrow's.
         if (kind === "subscription_morning" && settings.morningBriefAt) {
+          continue;
+        }
+
+        if (kind === "subscription_eve" && settings.eveningBriefAt) {
           continue;
         }
 

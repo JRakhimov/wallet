@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import OpenAI from "openai";
 import { AssistantConfig } from "../config/app-config";
 
@@ -19,8 +20,11 @@ export type ToolSpec = { name: string; description: string; parameters: Record<s
 
 export type ModelCall = { callId: string; name: string; arguments: string };
 
+/** A web page the answer relies on. */
+export type Source = { title: string; url: string };
+
 /** The model either answers (`calls` is empty) or asks to run tools first. */
-export type ModelAnswer = { text: string; calls: ModelCall[] };
+export type ModelAnswer = { text: string; calls: ModelCall[]; sources: Source[] };
 
 export type ModelRequest = {
   instructions: string;
@@ -30,6 +34,10 @@ export type ModelRequest = {
   signal?: AbortSignal;
   /** Gets the answer as it is written: the whole text so far, each time it grows. */
   onText?: (text: string) => void;
+  /** Lets the model search the web, for searches near the user. */
+  webSearch?: { timezone: string };
+  /** Called when the model starts searching the web. */
+  onSearch?: () => void;
 };
 
 /** The language model behind the assistant; replaceable, e.g. by a fake in tests. */
@@ -62,6 +70,9 @@ type InputItem = OpenAI.Responses.ResponseInputItem;
 /** OpenAI Responses API with function calling. Nothing is stored on OpenAI's side. */
 export class OpenAiAssistantModel implements AssistantModel {
   private readonly client: OpenAI;
+  private readonly logger = new Logger(OpenAiAssistantModel.name);
+  /** Turned off for good when the model refuses the web search tool. */
+  private webSearchWorks = true;
 
   constructor(private readonly config: AssistantConfig) {
     this.client = new OpenAI({ apiKey: config.apiKey, timeout: TIMEOUT_MS, maxRetries: 2 });
@@ -71,7 +82,7 @@ export class OpenAiAssistantModel implements AssistantModel {
     let response: OpenAI.Responses.Response;
 
     try {
-      response = await this.stream(request);
+      response = await this.streamWithFallback(request);
     } catch (error) {
       if (request.signal?.aborted) {
         throw new AssistantStoppedError();
@@ -88,17 +99,47 @@ export class OpenAiAssistantModel implements AssistantModel {
       .filter((item) => item.type === "function_call")
       .map((call) => ({ callId: call.call_id, name: call.name, arguments: call.arguments }));
 
-    return { text: response.output_text.trim(), calls };
+    return { text: response.output_text.trim(), calls, sources: sourcesOf(response.output) };
+  }
+
+  /**
+   * A model without web search refuses the whole request; then the assistant goes on without
+   * it rather than stop answering.
+   */
+  private async streamWithFallback(request: ModelRequest) {
+    const webSearch = this.webSearchWorks ? request.webSearch : undefined;
+
+    try {
+      return await this.stream(request, webSearch);
+    } catch (error) {
+      if (!webSearch || !isWebSearchRefusal(error)) {
+        throw error;
+      }
+
+      this.webSearchWorks = false;
+      this.logger.warn(`${this.config.model} does not support web search; it is turned off`);
+
+      return this.stream(request, undefined);
+    }
   }
 
   /** Streams the response, so the chat can show the answer while it is written. */
-  private async stream(request: ModelRequest) {
+  private async stream(request: ModelRequest, webSearch: ModelRequest["webSearch"]) {
+    const tools: OpenAI.Responses.Tool[] = request.tools.map(functionTool);
+
+    if (webSearch) {
+      tools.push({
+        type: "web_search",
+        user_location: { type: "approximate", timezone: webSearch.timezone },
+      });
+    }
+
     const stream = this.client.responses.stream(
       {
         model: this.config.model,
         instructions: request.instructions,
         input: request.items.map(inputItem),
-        tools: request.tools.map(functionTool),
+        tools,
         max_output_tokens: MAX_OUTPUT_TOKENS,
         store: false,
       },
@@ -112,10 +153,46 @@ export class OpenAiAssistantModel implements AssistantModel {
         text += event.delta;
         request.onText?.(text);
       }
+
+      if (event.type === "response.web_search_call.searching") {
+        request.onSearch?.();
+      }
     }
 
     return stream.finalResponse();
   }
+}
+
+/** The pages the answer cites, each once. */
+export function sourcesOf(output: OpenAI.Responses.ResponseOutputItem[]) {
+  const sources = new Map<string, Source>();
+
+  for (const item of output) {
+    if (item.type !== "message") {
+      continue;
+    }
+
+    for (const part of item.content) {
+      if (part.type !== "output_text") {
+        continue;
+      }
+
+      for (const annotation of part.annotations) {
+        if (annotation.type === "url_citation" && !sources.has(annotation.url)) {
+          sources.set(annotation.url, { title: annotation.title, url: annotation.url });
+        }
+      }
+    }
+  }
+
+  return [...sources.values()];
+}
+
+/** A 400 that names the web search tool: the model does not have it. */
+function isWebSearchRefusal(error: unknown) {
+  return (
+    error instanceof OpenAI.APIError && error.status === 400 && /web.?search/i.test(error.message)
+  );
 }
 
 function inputItem(item: TurnItem): InputItem {

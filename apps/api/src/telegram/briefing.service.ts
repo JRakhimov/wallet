@@ -19,7 +19,7 @@ const TICK_MS = 60_000;
 const SUNDAY = 7;
 const WEEKLY_REPORT_AT = "20:00";
 
-type BriefingKind = "morning_brief" | "weekly_report";
+type BriefingKind = "morning_brief" | "evening_brief" | "weekly_report";
 
 type Recipient = { id: string; telegramId: bigint; timezone: string };
 
@@ -39,6 +39,10 @@ export function dueBriefings(local: DateTime, settings: AssistantSettingsView): 
     due.push("morning_brief");
   }
 
+  if (settings.eveningBriefAt && isDue(local, settings.eveningBriefAt)) {
+    due.push("evening_brief");
+  }
+
   if (settings.weeklyReport && local.weekday === SUNDAY && isDue(local, WEEKLY_REPORT_AT)) {
     due.push("weekly_report");
   }
@@ -47,8 +51,8 @@ export function dueBriefings(local: DateTime, settings: AssistantSettingsView): 
 }
 
 /**
- * Sends every user with access the morning brief at their chosen time and the weekly report
- * on Sunday evening, in their timezone. Each goes out once a day, also across restarts.
+ * Sends every user with access the morning and the evening brief at their chosen times and the
+ * weekly report on Sunday evening, in their timezone. Each goes out once a day, also across restarts.
  */
 @Injectable()
 export class BriefingService implements OnApplicationBootstrap, OnModuleDestroy {
@@ -109,24 +113,26 @@ export class BriefingService implements OnApplicationBootstrap, OnModuleDestroy 
       const settings = await this.settings.get(owner.id);
 
       for (const kind of dueBriefings(local, settings)) {
-        await this.send(kind, owner, local);
+        await this.send(kind, owner, local, settings);
       }
     } catch {
       this.logger.warn("Briefing check failed");
     }
   }
 
-  private async send(kind: BriefingKind, owner: Recipient, local: DateTime) {
+  private async send(
+    kind: BriefingKind,
+    owner: Recipient,
+    local: DateTime,
+    settings: AssistantSettingsView,
+  ) {
     const key = { ownerId: owner.id, kind, date: local.toISODate()! };
     if (!(await this.claim(key))) {
       return;
     }
 
     try {
-      const text =
-        kind === "morning_brief"
-          ? await this.composer.morning(owner.id, local)
-          : await this.composer.weekly(owner.id, local);
+      const text = await this.compose(kind, owner.id, local, settings);
 
       await this.bot.sendTo(owner.telegramId, text, { silent: false, apps: appsOf(kind) });
 
@@ -135,6 +141,24 @@ export class BriefingService implements OnApplicationBootstrap, OnModuleDestroy 
       // Let the next tick try again within the grace period.
       await this.db.reminder.delete({ where: { ownerId_kind_date: key } });
       this.logger.warn(`Could not send the ${kind}`);
+    }
+  }
+
+  private compose(
+    kind: BriefingKind,
+    ownerId: string,
+    local: DateTime,
+    settings: AssistantSettingsView,
+  ) {
+    switch (kind) {
+      case "morning_brief":
+        return this.composer.morning(ownerId, local, settings);
+
+      case "evening_brief":
+        return this.composer.evening(ownerId, local, settings);
+
+      case "weekly_report":
+        return this.composer.weekly(ownerId, local);
     }
   }
 
@@ -153,5 +177,5 @@ export class BriefingService implements OnApplicationBootstrap, OnModuleDestroy 
 }
 
 function appsOf(kind: BriefingKind): MiniApp[] {
-  return kind === "morning_brief" ? ["tasks"] : ["wallet", "nutrition"];
+  return kind === "weekly_report" ? ["wallet", "nutrition"] : ["tasks"];
 }

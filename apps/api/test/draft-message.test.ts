@@ -3,40 +3,64 @@ import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { DraftMessage } from "../src/telegram/draft-message";
 
-test("a draft shows the first text at once, merges quick updates and is kept alive", async () => {
-  const shown: string[] = [];
+/** A draft with short timings that records what Telegram would get. */
+function fixture(timing = { updateMs: 20, holdMs: 60, refreshMs: 1000 }) {
+  const shown: { id: number; text: string }[] = [];
+  let lastId = 0;
+
   const draft = new DraftMessage(
-    async (text) => {
-      shown.push(text);
+    async (id, text) => {
+      shown.push({ id, text });
     },
-    { updateMs: 30, refreshMs: 80 },
+    () => ++lastId,
+    timing,
   );
 
-  draft.show("");
-  draft.show("В октябре");
-  draft.show("В октябре 3 800 000 сум");
-  await delay(50);
+  return { draft, shown };
+}
 
-  assert.deepEqual(shown, ["", "В октябре 3 800 000 сум"]);
+test("each progress line is a new draft shown whole, and it stays long enough to read", async () => {
+  const { draft, shown } = fixture();
 
-  // Telegram drops a draft after about 30 seconds without updates.
-  await delay(100);
-  assert.equal(shown.at(-1), "В октябре 3 800 000 сум");
-  assert.ok(shown.length >= 3);
+  draft.status("Распознаём голос…");
+  draft.status("Ищу операции…");
+  draft.status("Считаю итоги месяца…");
+  await delay(30);
+
+  // Within the hold only the first line is on screen; the latest one replaces it after.
+  assert.deepEqual(shown, [{ id: 1, text: "Распознаём голос…" }]);
+
+  await delay(60);
+  assert.deepEqual(shown.at(-1), { id: 3, text: "Считаю итоги месяца…" });
+  assert.equal(shown.length, 2);
 
   await draft.close();
-  const count = shown.length;
-  draft.show("после закрытия");
-  await delay(120);
-
-  assert.equal(shown.length, count);
 });
 
-test("a failed update does not stop the next ones", async () => {
+test("the answer keeps one draft id while it grows, so Telegram animates it", async () => {
+  const { draft, shown } = fixture({ updateMs: 20, holdMs: 0, refreshMs: 1000 });
+
+  draft.status("");
+  await delay(25);
+  draft.write("В октябре");
+  await delay(25);
+  draft.write("В октябре 3 800 000 сум");
+  await delay(25);
+  await draft.close();
+
+  assert.deepEqual(shown, [
+    { id: 1, text: "" },
+    { id: 2, text: "В октябре" },
+    { id: 2, text: "В октябре 3 800 000 сум" },
+  ]);
+});
+
+test("a draft is kept alive until it is closed, and a failed update does not stop the rest", async () => {
   const shown: string[] = [];
   let fail = true;
+  let lastId = 0;
   const draft = new DraftMessage(
-    async (text) => {
+    async (_id, text) => {
       if (fail) {
         fail = false;
         throw new Error("Too many requests");
@@ -44,14 +68,23 @@ test("a failed update does not stop the next ones", async () => {
 
       shown.push(text);
     },
-    { updateMs: 10, refreshMs: 1000 },
+    () => ++lastId,
+    { updateMs: 10, holdMs: 0, refreshMs: 40 },
   );
 
-  draft.show("Ищу операции…");
+  draft.status("Ищу операции…");
   await delay(20);
-  draft.show("Думаю");
-  await delay(30);
-  await draft.close();
+  draft.status("Думаю…");
+  await delay(100);
 
-  assert.deepEqual(shown, ["Думаю"]);
+  // Telegram drops a draft after about 30 seconds without updates.
+  assert.equal(shown[0], "Думаю…");
+  assert.ok(shown.length >= 2);
+
+  await draft.close();
+  const count = shown.length;
+  draft.write("после закрытия");
+  await delay(60);
+
+  assert.equal(shown.length, count);
 });

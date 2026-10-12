@@ -83,6 +83,7 @@ function fixture(
   counts: { meals: number; dinners: number; expenses: number },
   subscriptions: StoredSubscription[] = [],
   morningBriefAt: string | null = null,
+  eveningBriefAt: string | null = null,
 ) {
   const claimed = new Set<string>();
   const sent: { text: string; silent: boolean }[] = [];
@@ -134,7 +135,7 @@ function fixture(
     config,
     { allowedIds: async () => [123n] } as unknown as AccessService,
     {
-      get: async () => ({ morningBriefAt, weeklyReport: true, historyFrom: null }),
+      get: async () => ({ morningBriefAt, eveningBriefAt, weeklyReport: true, historyFrom: null }),
     } as unknown as AssistantSettingsService,
   );
   return { service, sent, failSend: (value: boolean) => (failSend = value) };
@@ -252,4 +253,20 @@ test("with the morning brief on, the charges of the day are left to the brief", 
 
   assert.equal(sent.length, 1);
   assert.match(sent[0].text, /^📅 Завтра/);
+});
+
+test("with the evening brief on, tomorrow's charges are left to it", async () => {
+  const subscription = { name: "Netflix", amount: new Prisma.Decimal("50000"), chargeDay: 15 };
+  const { service, sent } = fixture(
+    { meals: 2, dinners: 1, expenses: 4 },
+    [subscription],
+    null,
+    "21:00",
+  );
+
+  await service.tick(DateTime.fromISO("2026-10-14T18:01", { zone: timezone }));
+  await service.tick(DateTime.fromISO("2026-10-15T08:01", { zone: timezone }));
+
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].text, /^☀️ Сегодня/);
 });

@@ -289,7 +289,7 @@ test("a voice message shows a draft at once, is answered once and gets the answe
 
   // Later progress within the update interval is merged; the answer replaces the draft anyway.
   assert.deepEqual(telegram.drafts(), [
-    { chat_id: 123, draft_id: 77, text: "Принято в обработку…" },
+    { chat_id: 123, draft_id: 1, text: "Принято в обработку…" },
   ]);
   assert.deepEqual(telegram.sent(), ["Расход 45 000 сум за обед записан · Кафе"]);
   assert.deepEqual(telegram.silent(), [true]);
@@ -313,7 +313,7 @@ test("a text message shows Telegram's thinking placeholder, then the answer", as
 
   await chatBot(assistant).handleUpdate(textUpdate);
 
-  assert.deepEqual(telegram.drafts(), [{ chat_id: 123, draft_id: 80, text: "" }]);
+  assert.deepEqual(telegram.drafts(), [{ chat_id: 123, draft_id: 1, text: "" }]);
   assert.deepEqual(telegram.sent(), ["В октябре потрачено 3 800 000 сум"]);
   assert.equal(telegram.of("sendMessage")[0].body.reply_markup, undefined);
   assert.equal(inputs[0].text, "сколько я потратил?");
@@ -433,11 +433,11 @@ test("in webhook mode the draft has a stop button, and a tap aborts the answer a
   // The stop is not queued behind the answer it should stop.
   void bot.enqueue({
     update_id: 87,
-    stopped_message_generation: { chat: { id: 123 }, draft_id: 80 },
+    stopped_message_generation: { chat: { id: 123 }, draft_id: 1 },
   });
   await answered;
 
-  assert.deepEqual(telegram.drafts(), [{ chat_id: 123, draft_id: 80, text: "", can_stop: true }]);
+  assert.deepEqual(telegram.drafts(), [{ chat_id: 123, draft_id: 1, text: "", can_stop: true }]);
   assert.deepEqual(telegram.sent(), ["⏹ Остановлено"]);
 });
 

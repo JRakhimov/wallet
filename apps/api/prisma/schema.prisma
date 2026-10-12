@@ -344,5 +344,8 @@ model AssistantSettings {
   owner          Owner     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   morningBriefAt String?   @default("08:00") // HH:mm in the owner's timezone; null = off
   weeklyReport   Boolean   @default(true)
+  eveningBriefAt String?   @default("21:00") // HH:mm; null = off
   historyFrom    DateTime? // the chat starts over from here (/new)
+  briefWeather   Boolean   @default(true) // the weather of the day in the morning brief
+  weatherPlace   String? // its city; null = the city of the owner's timezone
 }

@@ -1,5 +1,5 @@
 import { DateTime } from "luxon";
-import { AssistantSettingsView } from "./settings.service";
+import { AssistantSettingsView, weatherPlaceOf } from "./settings.service";
 
 /**
  * Instructions of the assistant. They never change between requests, so the provider can cache
@@ -9,6 +9,7 @@ export const SYSTEM_PROMPT = `You are the user's personal assistant in their Tel
 - «Кошелёк» (wallet): accounts, expenses and income, transfers, monthly budgets, subscriptions.
 - «Питание» (nutrition): food diary with calories and macros, daily targets, workouts, body weight.
 - «Задачи» (tasks): to-dos, reminders the bot sends on time, repeating tasks, notes.
+Besides the apps you can look up the weather anywhere (get_weather), e.g. to suggest what to wear or whether to plan a walk, and search the web for anything current or general: opening hours, prices, news, places, recipes, how-tos. The user's own data comes only from the tools, never from the web. Do not add links to your answer: the bot lists the sources under it.
 The user writes, sends voice messages (you get the transcript; it may contain recognition mistakes) and photos. Your purpose: the user never has to open the apps to find something out or to write something down.
 
 How to work:
@@ -40,14 +41,16 @@ export function contextNote(input: {
 }) {
   const { now, settings, memory } = input;
   const brief = settings.morningBriefAt ? `at ${settings.morningBriefAt}` : "off";
+  const evening = settings.eveningBriefAt ? `at ${settings.eveningBriefAt}` : "off";
   const report = settings.weeklyReport ? "on" : "off";
+  const weather = settings.briefWeather ? weatherPlaceOf(settings, now.zoneName!) : "off";
   const facts = memory.length
     ? memory.map((fact) => `- [${fact.id}] ${fact.text}`).join("\n")
     : "- (nothing yet)";
 
   const lines = [
     `Current local time: ${now.toFormat("yyyy-MM-dd cccc HH:mm")} (${now.zoneName}).`,
-    `Morning brief: ${brief}. Weekly report: ${report}.`,
+    `Morning brief: ${brief}. Evening brief: ${evening}. Weather in them: ${weather}. Weekly report: ${report}.`,
     `Facts about the user ([id] text):\n${facts}`,
   ];
 

@@ -13,14 +13,21 @@ import { SubscriptionsService } from "../../wallet/subscriptions/subscriptions.s
 import { ToolSpec } from "../assistant-model";
 import { MemoryService } from "../memory.service";
 import { AssistantSettingsService } from "../settings.service";
+import { WeatherService } from "../weather.service";
 import { MemoryDeps, memoryTools } from "./memory.tools";
 import { NutritionDeps, nutritionTools } from "./nutrition.tools";
 import { OverviewDeps, overviewTools } from "./overview.tools";
 import { TasksDeps, tasksTools } from "./tasks.tools";
 import { ActionHandler, AssistantTool, toolSpec } from "./tool";
 import { WalletDeps, walletTools } from "./wallet.tools";
+import { WeatherDeps, weatherTools } from "./weather.tools";
 
-export type ToolboxDeps = OverviewDeps & WalletDeps & NutritionDeps & TasksDeps & MemoryDeps;
+export type ToolboxDeps = OverviewDeps &
+  WalletDeps &
+  NutritionDeps &
+  TasksDeps &
+  MemoryDeps &
+  WeatherDeps;
 
 export type Tools = {
   tools: Map<string, AssistantTool>;
@@ -37,6 +44,7 @@ export function buildTools(deps: ToolboxDeps): Tools {
     nutritionTools(deps),
     tasksTools(deps),
     memoryTools(deps),
+    weatherTools(deps),
   ];
   const tools = sets.flatMap((set) => set.tools);
 
@@ -66,6 +74,7 @@ export class AssistantToolbox {
     tasks: TasksService,
     memory: MemoryService,
     settings: AssistantSettingsService,
+    weather: WeatherService,
   ) {
     this.tools = buildTools({
       accounts,
@@ -81,6 +90,7 @@ export class AssistantToolbox {
       tasks,
       memory,
       settings,
+      weather,
     });
   }
 }

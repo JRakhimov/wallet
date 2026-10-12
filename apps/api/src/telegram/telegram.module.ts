@@ -12,5 +12,6 @@ import { TelegramWebhookController } from "./telegram-webhook.controller";
   imports: [AccessModule, AssistantModule, TasksModule],
   controllers: [TelegramWebhookController],
   providers: [TelegramBotService, ReminderService, TaskReminderService, BriefingService],
+  exports: [TelegramBotService],
 })
 export class TelegramModule {}

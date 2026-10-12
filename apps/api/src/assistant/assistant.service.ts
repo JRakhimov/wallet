@@ -1,6 +1,7 @@
 import { HttpException, Inject, Injectable, Logger } from "@nestjs/common";
 import { Owner } from "@prisma/client";
 import { DateTime } from "luxon";
+import { randomUUID } from "node:crypto";
 import { OwnerService } from "../owner/owner.service";
 import { SPEECH_TO_TEXT, SpeechToText } from "../voice/speech-to-text";
 import { ActionsService, SavedOffer } from "./actions.service";
@@ -9,6 +10,7 @@ import {
   AssistantModel,
   AssistantModelError,
   AssistantStoppedError,
+  ModelAnswer,
   ModelCall,
   TurnItem,
 } from "./assistant-model";
@@ -53,6 +55,10 @@ const MAX_LABEL = 24;
 const THINKING = "";
 const RECOGNIZING_TEXT = "Распознаём голос…";
 const STOPPED_TEXT = "⏹ Остановлено";
+const SEARCHING_TEXT = "Ищу в интернете…";
+/** Links under an answer from the web: enough to check it, not a wall of URLs. */
+const MAX_SOURCES = 3;
+const MAX_SOURCE_TITLE = 60;
 
 const NOT_CONFIGURED_TEXT = "Ассистент не настроен на сервере";
 const NO_SPEECH_TEXT = "Распознавание голоса не настроено на сервере";
@@ -100,7 +106,7 @@ export class AssistantService {
     await this.checkDailyLimit(owner.id, now);
 
     const offers: Offer[] = [];
-    const context = this.toolContext(owner, now, input, offers);
+    const context = this.toolContext(owner, now, input.key, input.photo, offers);
     const past = await this.pastItems(owner.id, now, Boolean(input.photo));
     const turn: TurnItem[] = [
       {
@@ -124,6 +130,40 @@ export class AssistantService {
     const saved = await this.actions.save(owner.id, offers);
 
     return composeReply(text, saved);
+  }
+
+  /** The tools for clients outside the chat (MCP), in the same order as for the model. */
+  get toolSpecs() {
+    return this.toolbox.tools.specs;
+  }
+
+  /**
+   * One tool call from outside the chat (an MCP client such as Home Assistant). What it records
+   * and the changes waiting for confirmation come back as `notice`: the chat gets them with the
+   * same «Отменить» and «Подтвердить» buttons, so nothing is deleted without a tap there.
+   */
+  async callTool(telegramId: bigint, name: string, args: unknown, source: string) {
+    const owner = await this.owners.ensureOwner(telegramId);
+    const now = DateTime.now().setZone(owner.timezone);
+    const offers: Offer[] = [];
+    const context = this.toolContext(owner, now, `mcp-${randomUUID()}`, null, offers);
+
+    const call = { callId: "", name, arguments: JSON.stringify(args ?? {}) };
+    const output = await this.runTool(call, context);
+    const isError = "error" in (JSON.parse(output) as object);
+
+    if (context.recorded.length === 0 && offers.length === 0) {
+      return { output, isError, notice: null };
+    }
+
+    const done = context.recorded.map((line) => `• ${line}`).join("\n");
+    const text = [`Через ${source}:`, done].filter(Boolean).join("\n");
+    const saved = await this.actions.save(owner.id, offers);
+    const notice = composeReply(text, saved);
+
+    await this.history.addNote(owner.id, notice.text);
+
+    return { output, isError, notice };
   }
 
   /** A tap on a button under an answer. */
@@ -194,15 +234,21 @@ export class AssistantService {
     return [...history, note];
   }
 
-  private toolContext(owner: Owner, now: DateTime, input: ChatInput, offers: Offer[]) {
+  private toolContext(
+    owner: Owner,
+    now: DateTime,
+    key: string,
+    photo: ChatPhoto | null,
+    offers: Offer[],
+  ) {
     let records = 0;
 
     const context: ToolContext = {
       ownerId: owner.id,
       timezone: owner.timezone,
       now,
-      photo: input.photo,
-      nextKey: () => `${input.key}-${++records}`,
+      photo,
+      nextKey: () => `${key}-${++records}`,
       offer: (offer) => offers.push(offer),
       recorded: [],
     };
@@ -236,10 +282,12 @@ export class AssistantService {
           tools: this.toolbox.tools.specs,
           signal: input.signal,
           onText,
+          webSearch: { timezone: context.timezone },
+          onSearch: () => input.onProgress?.(SEARCHING_TEXT),
         });
 
         if (answer.calls.length === 0) {
-          return { answer: answer.text, stopped: false };
+          return { answer: withSources(answer), stopped: false };
         }
 
         if (answer.text) {
@@ -336,6 +384,21 @@ export class AssistantService {
   }
 }
 
+/** An answer from the web ends with the pages it relies on. */
+function withSources(answer: ModelAnswer) {
+  if (!answer.text || answer.sources.length === 0) {
+    return answer.text;
+  }
+
+  const links = answer.sources.slice(0, MAX_SOURCES).map((source) => {
+    const title = shorten(source.title || new URL(source.url).hostname, MAX_SOURCE_TITLE);
+
+    return `• ${title}: ${source.url}`;
+  });
+
+  return `${answer.text}\n\nИсточники:\n${links.join("\n")}`;
+}
+
 /** Without an answer the records, or at least the questions with buttons, speak for it. */
 function answerText(answer: string, recorded: string[], offers: Offer[]) {
   if (answer) {
@@ -384,6 +447,6 @@ function composeReply(text: string, offers: SavedOffer[]): AssistantReply {
   };
 }
 
-function shorten(label: string) {
-  return label.length > MAX_LABEL ? `${label.slice(0, MAX_LABEL - 1)}…` : label;
+function shorten(label: string, max = MAX_LABEL) {
+  return label.length > max ? `${label.slice(0, max - 1)}…` : label;
 }

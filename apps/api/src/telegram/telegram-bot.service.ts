@@ -115,7 +115,7 @@ const HELP_ASSISTANT_TEXT = [
 const HELP_REMINDERS_TEXT = [
   "🔔 Если забудете внести еду или расходы, бот напомнит днём и вечером.",
   "О задачах бот напомнит в назначенное время: отметьте «Готово» или отложите кнопкой.",
-  "☀️ Утром бот присылает сводку на день, в воскресенье вечером — итоги недели. Это меняется словами: «присылай сводку в 7:30», «не присылай недельный отчёт».",
+  "☀️ Утром бот присылает сводку на день с погодой, в 21:00 — итоги дня и что ждёт завтра, в воскресенье вечером — итоги недели. Это меняется словами: «присылай утреннюю сводку в 7:30», «вечернюю сводку не нужно», «не присылай недельный отчёт».",
 ].join("\n");
 const HELP_ADMIN_TEXT = [
   "🔑 Администратору:",
@@ -163,8 +163,10 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
   private task?: Promise<void>;
   /** Tail of the webhook queue: updates are handled one at a time, in arrival order. */
   private queue: Promise<void> = Promise.resolve();
-  /** Answers being prepared, by chat and draft, so a stop button can abort them. */
-  private readonly generations = new Map<string, AbortController>();
+  /** Answers being prepared, by chat, so the draft's stop button can abort them. */
+  private readonly generations = new Map<number, AbortController>();
+  /** Drafts only need ids unique among the ones shown at the same time. */
+  private lastDraftId = 0;
 
   constructor(
     private readonly db: PrismaService,
@@ -399,20 +401,19 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
       return;
     }
 
-    const draft = this.draftFor(chatId, updateId);
+    const draft = this.draftFor(chatId);
     const stop = new AbortController();
-    const generation = generationKey(chatId, updateId);
 
-    this.generations.set(generation, stop);
-    draft.show(firstProgress(message));
+    this.generations.set(chatId, stop);
+    draft.status(firstProgress(message));
 
     try {
       const input = await this.chatInput(message, updateId);
       const reply = await this.assistant.reply({
         ...input,
         signal: stop.signal,
-        onProgress: (text) => draft.show(text),
-        onText: (text) => draft.show(text),
+        onProgress: (text) => draft.status(text),
+        onText: (text) => draft.write(text),
       });
 
       await draft.close();
@@ -429,30 +430,32 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
       this.logger.error(`Chat message failed: ${error instanceof Error ? error.name : "unknown"}`);
       await this.send(chatId, FAILED_TEXT, false);
     } finally {
-      this.generations.delete(generation);
+      this.generations.delete(chatId);
     }
   }
 
   /**
-   * The draft of an answer; its id is the update's id. The stop button needs the webhook:
-   * by polling, the tap would only arrive after the answer it should stop.
+   * The draft of an answer. The stop button needs the webhook: by polling, the tap would only
+   * arrive after the answer it should stop.
    */
-  private draftFor(chatId: number, draftId: number) {
+  private draftFor(chatId: number) {
     const canStop = Boolean(this.config.webhook);
 
-    return new DraftMessage(async (text) => {
+    const sendDraft = async (draftId: number, text: string) => {
       await this.call("sendMessageDraft", {
         chat_id: chatId,
         draft_id: draftId,
         text,
         ...(canStop && { can_stop: true }),
       });
-    });
+    };
+
+    return new DraftMessage(sendDraft, () => ++this.lastDraftId);
   }
 
   /** A tap on the draft's stop button. */
   private stopGeneration(stopped: GenerationStopped) {
-    this.generations.get(generationKey(stopped.chat.id, stopped.draft_id))?.abort();
+    this.generations.get(stopped.chat.id)?.abort();
   }
 
   /** The message for the assistant, with the voice or the photo downloaded. */
@@ -491,8 +494,20 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
     return { full: fullFile.data, thumbnail: thumbnailFile.data };
   }
 
+  /**
+   * What an MCP client did, with its buttons. A change waiting for confirmation comes with
+   * sound: nothing happens until it is tapped.
+   */
+  async notify(telegramId: bigint, reply: AssistantReply) {
+    const waits = reply.buttons.some((row) =>
+      row.some((button) => button.data.startsWith("act-no:")),
+    );
+
+    await this.sendReply(Number(telegramId), reply, !waits);
+  }
+
   /** The answer; a long one is split into several messages, the buttons go under the last. */
-  private async sendReply(chatId: number, reply: AssistantReply) {
+  private async sendReply(chatId: number, reply: AssistantReply, silent = true) {
     const parts = splitText(reply.text, MAX_MESSAGE_LENGTH);
     const keyboard = reply.buttons.map((row) =>
       row.map((button) => ({ text: button.text, callback_data: button.data })),
@@ -501,7 +516,7 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
     for (const [index, part] of parts.entries()) {
       const buttons = index === parts.length - 1 ? keyboard : [];
 
-      await this.send(chatId, part, true, buttons);
+      await this.send(chatId, part, silent, buttons);
     }
   }
 
@@ -517,6 +532,8 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
         chat_id: chatId,
         text,
         disable_notification: silent,
+        // Sources under an answer would otherwise expand into a big card.
+        link_preview_options: { is_disabled: true },
         ...(buttons.length > 0 && { reply_markup: { inline_keyboard: buttons } }),
       });
       return sent.message_id;
@@ -742,10 +759,6 @@ function firstProgress(message: Message) {
   }
 
   return message.photo ? PHOTO_TEXT : THINKING;
-}
-
-function generationKey(chatId: number, draftId: number) {
-  return `${chatId}:${draftId}`;
 }
 
 /** Text that is not a /command. */

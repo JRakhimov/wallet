@@ -1,6 +1,10 @@
 import { z } from "zod/v4";
 import { MemoryService } from "../memory.service";
-import { AssistantSettingsService } from "../settings.service";
+import {
+  AssistantSettingsService,
+  AssistantSettingsView,
+  weatherPlaceOf,
+} from "../settings.service";
 import { checkId, defineAction, defineTool, ToolError, Toolset } from "./tool";
 
 export type MemoryDeps = {
@@ -10,6 +14,7 @@ export type MemoryDeps = {
 
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 const OFF = "off";
+const MAX_PLACE_LENGTH = 100;
 
 /** What the assistant remembers about the person, and its own settings. */
 export function memoryTools(deps: MemoryDeps): Toolset {
@@ -77,36 +82,82 @@ function updateSettings(deps: MemoryDeps) {
     name: "update_assistant_settings",
     progress: "Меняю настройки…",
     description:
-      "Turns the bot's own messages on or off: the morning brief (tasks, budget, subscriptions, calories) at a chosen time, and the weekly report on Sunday evening. Pass null for what stays the same.",
+      "Changes the bot's own messages: the morning brief (today's weather, tasks, budget, subscriptions, calories) and the evening brief (the day's spending and calories, tomorrow's weather, tasks and subscriptions) at chosen times, the weather in them and its city, and the weekly report on Sunday evening. Pass null for what stays the same.",
     parameters: z.strictObject({
       morningBrief: z
         .string()
         .nullable()
-        .describe(`"HH:mm" to send the brief at that time, "${OFF}" to stop it, null to keep`),
+        .describe(
+          `"HH:mm" to send the morning brief at that time, "${OFF}" to stop it, null to keep`,
+        ),
+      eveningBrief: z
+        .string()
+        .nullable()
+        .describe(
+          `"HH:mm" to send the evening brief at that time, "${OFF}" to stop it, null to keep`,
+        ),
       weeklyReport: z.boolean().nullable().describe("true to send, false to stop, null to keep"),
+      briefWeather: z
+        .boolean()
+        .nullable()
+        .describe(
+          "true to show the weather of the day in the brief, false to hide it, null to keep",
+        ),
+      weatherPlace: z
+        .string()
+        .nullable()
+        .describe("City of the weather in the briefs, e.g. «Самарканд»; null to keep"),
     }),
 
     async run(context, args) {
-      const changes: { morningBriefAt?: string | null; weeklyReport?: boolean } = {};
+      const changes: Partial<AssistantSettingsView> = {};
 
       if (args.morningBrief !== null) {
         changes.morningBriefAt = briefTime(args.morningBrief);
+      }
+
+      if (args.eveningBrief !== null) {
+        changes.eveningBriefAt = briefTime(args.eveningBrief);
       }
 
       if (args.weeklyReport !== null) {
         changes.weeklyReport = args.weeklyReport;
       }
 
+      if (args.briefWeather !== null) {
+        changes.briefWeather = args.briefWeather;
+      }
+
+      if (args.weatherPlace !== null) {
+        changes.weatherPlace = placeName(args.weatherPlace);
+      }
+
       const settings = await deps.settings.update(context.ownerId, changes);
-      const brief = settings.morningBriefAt ? `в ${settings.morningBriefAt}` : "выключена";
-      const report = settings.weeklyReport ? "включён" : "выключен";
-      const recorded = `Утренняя сводка ${brief}, недельный отчёт ${report}`;
+      const recorded = settingsSummary(settings, context.timezone);
 
       context.recorded.push(recorded);
 
       return { recorded };
     },
   });
+}
+
+/** "Утренняя сводка в 08:00, вечерняя в 21:00, погода в них: Ташкент, недельный отчёт включён". */
+function settingsSummary(settings: AssistantSettingsView, timezone: string) {
+  const at = (time: string | null) => (time ? `в ${time}` : "выключена");
+  const weather = settings.briefWeather ? weatherPlaceOf(settings, timezone) : "выключена";
+  const report = settings.weeklyReport ? "включён" : "выключен";
+
+  return `Утренняя сводка ${at(settings.morningBriefAt)}, вечерняя ${at(settings.eveningBriefAt)}, погода в них: ${weather}, недельный отчёт ${report}`;
+}
+
+function placeName(value: string) {
+  const place = value.trim().slice(0, MAX_PLACE_LENGTH);
+  if (!place) {
+    throw new ToolError("Назовите город для погоды");
+  }
+
+  return place;
 }
 
 function briefTime(value: string) {

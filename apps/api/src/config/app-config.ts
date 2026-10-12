@@ -30,9 +30,13 @@ export type AssistantConfig = { apiKey: string; model: string };
 
 const DEFAULT_ASSISTANT_MODEL = "gpt-6-luna";
 
+/** MCP clients (Home Assistant and the like) connect to /api/mcp/<secret>; null turns it off. */
+export type McpConfig = { secret: string };
+
 /** Telegram pushes updates to `url`, signed with `secret` in a header. */
 export type WebhookConfig = { url: string; secret: string };
 
+/** Webhook and MCP secrets: long enough not to be guessed, safe in a URL and a header. */
 const WEBHOOK_SECRET = /^[A-Za-z0-9_-]{32,256}$/;
 
 export interface AppConfig {
@@ -55,6 +59,7 @@ export interface AppConfig {
   tasksAppUrl: string;
   voice: VoiceConfig | null;
   assistant: AssistantConfig | null;
+  mcp: McpConfig | null;
   nutrition: {
     llm: LlmConfig | null;
     /** Absolute folder for meal photos (PhotoStorage on disk). */
@@ -142,6 +147,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     tasksAppUrl,
     voice: readVoiceConfig(env),
     assistant: readAssistantConfig(env),
+    mcp: readMcpConfig(env),
     nutrition: {
       llm: readLlmConfig(env),
       photoDir: resolve(env.PHOTO_STORAGE_DIR || DEFAULT_PHOTO_DIR),
@@ -166,6 +172,20 @@ function readWebhookConfig(env: NodeJS.ProcessEnv): WebhookConfig | null {
   }
 
   return { url, secret };
+}
+
+/** The MCP server is off without a secret: the secret in its URL is the only key to the data. */
+function readMcpConfig(env: NodeJS.ProcessEnv): McpConfig | null {
+  const secret = env.MCP_SECRET || "";
+  if (!secret) {
+    return null;
+  }
+
+  if (!WEBHOOK_SECRET.test(secret)) {
+    throw new Error("MCP_SECRET must be 32-256 characters: letters, digits, _ and -");
+  }
+
+  return { secret };
 }
 
 /** Meal recognition is optional: without an API key the rest of the API still works. */

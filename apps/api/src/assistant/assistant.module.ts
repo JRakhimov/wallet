@@ -21,6 +21,7 @@ import { HistoryService } from "./history.service";
 import { MemoryService } from "./memory.service";
 import { AssistantSettingsService } from "./settings.service";
 import { AssistantToolbox } from "./tools/toolbox";
+import { WeatherService } from "./weather.service";
 
 function createModel(config: AppConfig) {
   if (!config.assistant) {
@@ -59,6 +60,7 @@ function createModel(config: AppConfig) {
     MemoryService,
     AssistantSettingsService,
     BriefingComposer,
+    WeatherService,
   ],
   exports: [AssistantService, AssistantSettingsService, BriefingComposer],
 })

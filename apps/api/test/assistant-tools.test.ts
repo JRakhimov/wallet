@@ -143,6 +143,9 @@ function fakeServices() {
       update: track("settings.update", (_owner: string, changes: Record<string, unknown>) => ({
         morningBriefAt: "08:00",
         weeklyReport: true,
+        eveningBriefAt: "21:00",
+        briefWeather: true,
+        weatherPlace: null,
         ...changes,
       })),
     },
@@ -532,30 +535,46 @@ test("a photo of a meal is passed on with its thumbnail", async () => {
   assert.deepEqual(input.upload, { photo: photo.full, thumbnail: photo.thumbnail });
 });
 
-test("the morning brief is switched off or moved by words", async () => {
+test("the morning brief, its weather and the weekly report are changed by words", async () => {
   const { tools, called } = fakeServices();
   const { context } = toolContext();
+  const keep = {
+    morningBrief: null,
+    eveningBrief: null,
+    weeklyReport: null,
+    briefWeather: null,
+    weatherPlace: null,
+  };
 
+  await run(tools, "update_assistant_settings", { ...keep, morningBrief: "off" }, context);
   await run(
     tools,
     "update_assistant_settings",
-    { morningBrief: "off", weeklyReport: null },
+    { ...keep, morningBrief: "07:30", eveningBrief: "off", weeklyReport: false },
     context,
   );
-  await run(
+  const moved = await run(
     tools,
     "update_assistant_settings",
-    { morningBrief: "07:30", weeklyReport: false },
+    { ...keep, weatherPlace: " Самарканд " },
     context,
   );
 
   assert.deepEqual(
     called("settings.update").map((call) => call.args[1]),
-    [{ morningBriefAt: null }, { morningBriefAt: "07:30", weeklyReport: false }],
+    [
+      { morningBriefAt: null },
+      { morningBriefAt: "07:30", eveningBriefAt: null, weeklyReport: false },
+      { weatherPlace: "Самарканд" },
+    ],
+  );
+  assert.equal(
+    moved.recorded,
+    "Утренняя сводка в 08:00, вечерняя в 21:00, погода в них: Самарканд, недельный отчёт включён",
   );
 
   await assert.rejects(
-    run(tools, "update_assistant_settings", { morningBrief: "7:30", weeklyReport: null }, context),
+    run(tools, "update_assistant_settings", { ...keep, morningBrief: "7:30" }, context),
     ToolError,
   );
 });

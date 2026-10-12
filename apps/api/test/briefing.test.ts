@@ -2,8 +2,8 @@ import "reflect-metadata";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DateTime } from "luxon";
-import { morningText, weeklyText } from "../src/assistant/briefing";
-import { DEFAULT_SETTINGS } from "../src/assistant/settings.service";
+import { eveningText, morningText, weeklyText } from "../src/assistant/briefing";
+import { DEFAULT_SETTINGS, weatherPlaceOf } from "../src/assistant/settings.service";
 import { TaskView } from "../src/tasks/tasks.service";
 import { dueBriefings } from "../src/telegram/briefing.service";
 
@@ -30,6 +30,14 @@ function task(title: string, dueTime: string | null = null): TaskView {
 test("the morning brief lists the day's tasks, the budget per day, charges, calories and weight", () => {
   const text = morningText({
     now: monday,
+    weather: {
+      place: "Ташкент",
+      icon: "🌧",
+      sky: "небольшой дождь",
+      min: 11.4,
+      max: 21.6,
+      precipitationChance: 60,
+    },
     overdue: [task("Оплатить интернет")],
     today: [task("Позвонить в банк", "10:00"), task("Купить продукты")],
     month: { spent: "1200000.00", budget: "5000000.00", remaining: "3800000.00" },
@@ -42,6 +50,7 @@ test("the morning brief lists the day's tasks, the budget per day, charges, calo
     text,
     [
       "☀️ Доброе утро! Сегодня понедельник, 12 октября.",
+      "🌧 Ташкент: +11…+22°, небольшой дождь, осадки 60%.",
       "",
       "📝 Задачи на сегодня:",
       "• 10:00 Позвонить в банк",
@@ -60,6 +69,7 @@ test("the morning brief lists the day's tasks, the budget per day, charges, calo
 test("without a budget or a profile the brief says what is there", () => {
   const text = morningText({
     now: monday,
+    weather: null,
     overdue: [],
     today: [],
     month: { spent: "1200000.00", budget: null, remaining: null },
@@ -119,12 +129,146 @@ test("the brief goes out at the chosen time, the report on Sunday evening, and b
   assert.deepEqual(dueBriefings(at("2026-10-12T09:00"), DEFAULT_SETTINGS), []);
   assert.deepEqual(dueBriefings(at("2026-10-12T07:59"), DEFAULT_SETTINGS), []);
   assert.deepEqual(dueBriefings(at("2026-10-12T20:10"), DEFAULT_SETTINGS), []);
+  assert.deepEqual(dueBriefings(at("2026-10-12T21:00"), DEFAULT_SETTINGS), ["evening_brief"]);
   assert.deepEqual(dueBriefings(sunday, DEFAULT_SETTINGS), ["weekly_report"]);
 
   const early = { ...DEFAULT_SETTINGS, morningBriefAt: "07:30" };
   assert.deepEqual(dueBriefings(at("2026-10-12T07:30"), early), ["morning_brief"]);
 
-  const off = { ...DEFAULT_SETTINGS, morningBriefAt: null, weeklyReport: false };
+  const off = {
+    ...DEFAULT_SETTINGS,
+    morningBriefAt: null,
+    eveningBriefAt: null,
+    weeklyReport: false,
+  };
   assert.deepEqual(dueBriefings(at("2026-10-12T08:00"), off), []);
+  assert.deepEqual(dueBriefings(at("2026-10-12T21:00"), off), []);
   assert.deepEqual(dueBriefings(sunday, off), []);
+});
+
+test("frost and a dry day read naturally in the brief", () => {
+  const text = morningText({
+    now: monday,
+    weather: {
+      place: "Москва",
+      icon: "❄️",
+      sky: "снег",
+      min: -3.6,
+      max: 0.2,
+      precipitationChance: 10,
+    },
+    overdue: [],
+    today: [],
+    month: { spent: "0.00", budget: null, remaining: null },
+    charges: [],
+    targetKcal: null,
+    weight: { current: null, change7: null },
+  });
+
+  assert.match(
+    text,
+    /^☀️ Доброе утро! Сегодня понедельник, 12 октября\.\n❄️ Москва: −4…0°, снег\.\n/,
+  );
+});
+
+test("the brief's weather is for the chosen city, or the city of the timezone", () => {
+  assert.equal(weatherPlaceOf(DEFAULT_SETTINGS, "Asia/Tashkent"), "Tashkent");
+  assert.equal(weatherPlaceOf(DEFAULT_SETTINGS, "Asia/Ho_Chi_Minh"), "Ho Chi Minh");
+  assert.equal(
+    weatherPlaceOf({ ...DEFAULT_SETTINGS, weatherPlace: "Самарканд" }, "Asia/Tashkent"),
+    "Самарканд",
+  );
+});
+
+const evening = DateTime.fromISO("2026-10-12T21:00", { zone: TZ });
+
+function tomorrowTask(title: string, dueTime: string | null = null) {
+  return { ...task(title, dueTime), dueDate: "2026-10-13" };
+}
+
+test("the evening brief sums up the day and shows tomorrow", () => {
+  const text = eveningText({
+    now: evening,
+    weather: {
+      place: "Ташкент",
+      icon: "⛅",
+      sky: "переменная облачность",
+      min: 9.6,
+      max: 19.4,
+      precipitationChance: 10,
+    },
+    spentToday: "185000.00",
+    month: { budget: "5000000.00", remaining: "3615000.00" },
+    eaten: { kcal: 1850.4, targetKcal: 2100 },
+    unfinished: [
+      task("Купить продукты"),
+      task("Оплатить интернет"),
+      task("Позвонить маме"),
+      task("Полить цветы"),
+    ],
+    tomorrow: [tomorrowTask("Позвонить в банк", "10:00"), tomorrowTask("Забрать посылку")],
+    charges: [{ name: "Netflix", amount: "120000.00" }],
+  });
+
+  assert.equal(
+    text,
+    [
+      "🌙 Итоги дня, понедельник, 12 октября",
+      "",
+      "💳 Сегодня потрачено 185 000 сум, от бюджета на октябрь осталось 3 615 000 сум.",
+      "🥗 Съедено 1 850 ккал из 2 100.",
+      "📝 Не выполнено сегодня: «Купить продукты», «Оплатить интернет», «Позвонить маме» и ещё 1.",
+      "",
+      "Завтра:",
+      "⛅ Ташкент: +10…+19°, переменная облачность.",
+      "📝 Задачи:",
+      "• 10:00 Позвонить в банк",
+      "• Забрать посылку",
+      "📅 Спишутся подписки: Netflix 120 000 сум.",
+    ].join("\n"),
+  );
+});
+
+test("a quiet evening without a budget, profile or plans", () => {
+  const text = eveningText({
+    now: evening,
+    weather: null,
+    spentToday: "0.00",
+    month: { budget: null, remaining: null },
+    eaten: null,
+    unfinished: [],
+    tomorrow: [],
+    charges: [],
+  });
+
+  assert.equal(
+    text,
+    [
+      "🌙 Итоги дня, понедельник, 12 октября",
+      "",
+      "💳 Сегодня расходов не было.",
+      "",
+      "Завтра:",
+      "📝 Задач на завтра нет.",
+    ].join("\n"),
+  );
+});
+
+test("an overspent budget and an empty diary are said plainly", () => {
+  const text = eveningText({
+    now: evening,
+    weather: null,
+    spentToday: "300000.00",
+    month: { budget: "5000000.00", remaining: "-120000.00" },
+    eaten: { kcal: 0, targetKcal: 2100 },
+    unfinished: [],
+    tomorrow: [],
+    charges: [],
+  });
+
+  assert.match(
+    text,
+    /💳 Сегодня потрачено 300 000 сум, бюджет на октябрь превышен на 120 000 сум\./,
+  );
+  assert.match(text, /🥗 Еда сегодня не записана\./);
 });

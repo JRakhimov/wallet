@@ -75,8 +75,9 @@ const tools: AssistantTool[] = [
 const call = (name: string, args: unknown = {}, callId = `call-${name}`): ModelAnswer => ({
   text: "",
   calls: [{ callId, name, arguments: JSON.stringify(args) }],
+  sources: [],
 });
-const answer = (text: string): ModelAnswer => ({ text, calls: [] });
+const answer = (text: string): ModelAnswer => ({ text, calls: [], sources: [] });
 
 /** The assistant with a scripted model and in-memory stand-ins for everything else. */
 type Step = ModelAnswer | Error | ((request: ModelRequest) => ModelAnswer);
@@ -109,6 +110,7 @@ function setup(
     },
   };
   const history = {
+    addNote: async () => undefined,
     recent: async () => [
       { type: "user", text: "раньше" },
       { type: "assistant", text: "ответ" },
@@ -215,6 +217,7 @@ test("a change waits for the button: the exact question goes under the answer", 
         { callId: "a", name: "change_thing", arguments: '{"value":1}' },
         { callId: "b", name: "change_thing", arguments: '{"value":2}' },
       ],
+      sources: [],
     },
     answer("Подтвердите"),
   ]);
@@ -249,6 +252,7 @@ test("mistakes in tool calls go back to the model as errors", async () => {
         { callId: "4", name: "add_thing", arguments: "{oops" },
         { callId: "5", name: "crash_thing", arguments: "{}" },
       ],
+      sources: [],
     },
     answer("Не вышло"),
   ]);
@@ -437,4 +441,65 @@ test("a stopped answer keeps what was written and what was recorded", async () =
 
   assert.equal(recorded.text, "Записано: 2 (telegram-9-1)\n\n⏹ Остановлено");
   assert.deepEqual(recorded.buttons, [[{ text: "↩️ Отменить", data: "act:id-0" }]]);
+});
+
+test("a tool called from outside the chat reports its records and questions to the chat", async () => {
+  const { service, saved } = setup([]);
+
+  const read = await service.callTool(1n, "refuse_thing", {}, "Home Assistant");
+  assert.deepEqual(read, {
+    output: '{"error":"Плохие аргументы"}',
+    isError: true,
+    notice: null,
+  });
+
+  const record = await service.callTool(1n, "add_thing", { value: 4 }, "Home Assistant");
+  assert.equal(record.isError, false);
+  assert.match(record.output, /"recorded":"Записано: 4 \(mcp-[0-9a-f-]{36}-1\)"/);
+  assert.match(record.notice!.text, /^Через Home Assistant:\n• Записано: 4 \(mcp-/);
+  assert.deepEqual(record.notice!.buttons, [[{ text: "↩️ Отменить", data: "act:id-0" }]]);
+
+  const change = await service.callTool(1n, "change_thing", { value: 9 }, "Claude");
+  assert.equal(change.notice!.text, "Через Claude:\n\n❓ Изменить на 9?");
+  assert.equal(change.notice!.buttons[0][1].data, "act-no:id-0");
+
+  // Nothing of it is a chat turn.
+  assert.equal(saved.length, 0);
+});
+
+test("an answer from the web lists its sources, and the chat sees the search", async () => {
+  const progress: string[] = [];
+  const { service, requests } = setup([
+    (request) => {
+      request.onSearch!();
+      return {
+        text: "Корзинка на Чиланзаре работает до 23:00.",
+        calls: [],
+        sources: [
+          { title: "Корзинка — магазины и часы работы", url: "https://korzinka.uz/stores" },
+          { title: "", url: "https://yandex.uz/maps/org/korzinka" },
+          { title: "Третий", url: "https://example.uz/3" },
+          { title: "Четвёртый", url: "https://example.uz/4" },
+        ],
+      };
+    },
+  ]);
+
+  const reply = await service.reply(
+    message({ text: "до скольки работает корзинка?", onProgress: (text) => progress.push(text) }),
+  );
+
+  assert.equal(
+    reply.text,
+    [
+      "Корзинка на Чиланзаре работает до 23:00.",
+      "",
+      "Источники:",
+      "• Корзинка — магазины и часы работы: https://korzinka.uz/stores",
+      "• yandex.uz: https://yandex.uz/maps/org/korzinka",
+      "• Третий: https://example.uz/3",
+    ].join("\n"),
+  );
+  assert.deepEqual(requests[0].webSearch, { timezone: "Asia/Tashkent" });
+  assert.deepEqual(progress, ["", "Ищу в интернете…"]);
 });
